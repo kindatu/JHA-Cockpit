@@ -183,6 +183,26 @@
             transform: scale(0.96) !important;
         }
 
+        /* Prüfbereich Mitgliederliste (Import) */
+        #import-review { margin-top: 2rem; padding: 1.25rem; border: 2px solid #e2e8f0; border-radius: 1rem; background: #f8fafc; font-size: 0.8rem; }
+        .imp-title { font-family: 'Ubuntu', sans-serif; font-weight: 700; font-size: 0.95rem; margin-bottom: 1rem; color: #0f172a; }
+        .imp-sub { font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.65rem; color: #64748b; margin: 1rem 0 0.4rem; }
+        .imp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 0.75rem; }
+        .imp-field { display: flex; flex-direction: column; gap: 0.2rem; font-weight: 700; color: #475569; font-size: 0.7rem; }
+        .imp-field select { border: 2px solid #e2e8f0; border-radius: 0.5rem; padding: 0.35rem; font-weight: 400; background: #fff; color: #0f172a; }
+        .imp-msg { padding: 0.45rem 0.7rem; border-radius: 0.5rem; margin-bottom: 0.3rem; border-left: 4px solid; }
+        .imp-error { background: #fee2e2; color: #991b1b; border-color: #dc2626; }
+        .imp-warn { background: #fef9c3; color: #854d0e; border-color: #ca8a04; }
+        .imp-info { background: #dbeafe; color: #1e40af; border-color: #3b82f6; }
+        .imp-ok { background: #dcfce7; color: #166534; border-color: #16a34a; }
+        .imp-details { margin-top: 0.8rem; }
+        .imp-details summary { cursor: pointer; font-weight: 700; color: #334155; }
+        .imp-table { width: 100%; margin-top: 0.4rem; border-collapse: collapse; background: #fff; }
+        .imp-table th, .imp-table td { text-align: left; padding: 0.3rem 0.5rem; border-bottom: 1px solid #e2e8f0; }
+        .imp-table th { font-size: 0.65rem; text-transform: uppercase; color: #64748b; }
+        .imp-num { text-align: right !important; }
+        .imp-bad { color: #991b1b; font-weight: 700; }
+
         /* Badge Pop-In Animation */
         @keyframes popIn {
             0% { transform: scale(0.8); opacity: 0; }
@@ -264,7 +284,7 @@
                             class="bg-blue-600 text-white w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold">1</span>
                         Gremiumsliste (.csv, .xlsx)
                     </h3>
-                    <input type="file" id="memberCsv" accept=".csv,.xlsx"
+                    <input type="file" id="memberCsv" accept=".csv,.xlsx" onchange="onMemberFileChosen(this)"
                         class="w-full border-2 border-slate-100 p-3 rounded-xl text-sm bg-slate-50 focus:border-blue-500 outline-none transition">
                     <div
                         class="p-4 bg-slate-50 rounded-xl border border-slate-200 text-[11px] space-y-2 leading-relaxed">
@@ -285,6 +305,7 @@
                         placeholder="Tagesordnungspunkte inkl. Unterziffern hier reinkopieren..."></textarea>
                 </div>
             </div>
+            <div id="import-review" class="hidden no-print"></div>
             <div class="mt-10 pt-8 border-t flex flex-col items-center">
                 <button onclick="initializeSession()"
                     class="w-full md:w-96 bg-blue-600 text-white py-4 rounded-2xl font-black hover:bg-blue-700 transition shadow-xl uppercase tracking-widest text-base">Sitzung

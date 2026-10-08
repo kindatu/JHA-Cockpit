@@ -35,15 +35,61 @@ function esc(v) {
         .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-// Rollen-Gewicht für die Standardsortierung (eine Stelle statt dreimal im Code)
+// Kleinschreibung, ohne Satzzeichen/Leerraum (für tolerante Vergleiche)
+function normText(v) {
+    return String(v === undefined || v === null ? "" : v).toLowerCase().replace(/ß/g, "ss").replace(/[^a-zäöü0-9]/g, "");
+}
+
+function levenshtein(a, b) {
+    const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= a.length; i++) {
+        let diag = prev[0]; prev[0] = i;
+        for (let j = 1; j <= b.length; j++) {
+            const tmp = prev[j];
+            prev[j] = Math.min(prev[j] + 1, prev[j - 1] + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
+            diag = tmp;
+        }
+    }
+    return prev[b.length];
+}
+
+// --- STATUS-ERKENNUNG ---
+// Zerlegt einen Status-Text wie "stellv. Stimmbereichtigt" in seine Bedeutung. Wortweise und
+// tolerant gegenüber Tippfehlern, Abkürzungen und Zeichensetzung. Die ganze App fragt die Rolle
+// ausschließlich hierüber ab (nie mehr per includes() auf dem Rohtext).
+const STATUS_WORTE = {
+    voting: { start: ['stimm', 'beschl'], nah: ['stimmberechtigt', 'beschliessend', 'stimmberechtigte'], max: 3 },
+    consulting: { start: ['berat'], nah: ['beratend', 'beratende'], max: 2 },
+    stellv: { start: ['stell', 'stv', 'vertret'], nah: ['stellvertretend', 'stellvertreter', 'stellvertretung', 'stellv'], max: 3 }
+};
+
+function roleOf(status) {
+    const words = String(status || "").toLowerCase().replace(/ß/g, "ss").split(/[^a-zäöü]+/).filter(Boolean);
+    const found = { voting: false, consulting: false, stellv: false };
+    words.forEach(w => {
+        Object.keys(STATUS_WORTE).forEach(k => {
+            const d = STATUS_WORTE[k];
+            if (d.start.some(p => w.startsWith(p)) || (w.length >= 5 && d.nah.some(n => levenshtein(w, n) <= d.max && levenshtein(w, n) < w.length / 2))) found[k] = true;
+        });
+    });
+    return { isVoting: found.voting, isConsulting: found.consulting, isStellv: found.stellv, known: found.voting || found.consulting };
+}
+
+function roleLabel(status) {
+    const r = roleOf(status);
+    if (!String(status || "").trim()) return null;
+    if (r.isVoting) return r.isStellv ? "Stellvertretung (stimmberechtigt)" : "Stimmberechtigt";
+    if (r.isConsulting) return r.isStellv ? "Stellvertretung (beratend)" : "Beratend";
+    if (r.isStellv) return "Stellvertretung (Stimmrecht unklar)";
+    return null;
+}
+
+// Rollen-Gewicht für die Standardsortierung
 function getWeight(status) {
-    const s = (status || "").toLowerCase();
-    const isStellv = s.includes('stellv');
-    const isVoting = s.includes('stimmbereit') || s.includes('stimmberecht') || s.includes('beschließend');
-    const isConsulting = s.includes('beratend');
-    if (isVoting && !isStellv) return 1;
-    if (isConsulting && !isStellv) return 2;
-    if (isStellv) return 3;
+    const r = roleOf(status);
+    if (r.isVoting && !r.isStellv) return 1;
+    if (r.isConsulting && !r.isStellv) return 2;
+    if (r.isStellv) return 3;
     return 4;
 }
 
@@ -52,66 +98,132 @@ function isPlaceholderName(s) {
     return /^(n\.?\s?n\.?|-+|\?+|tbd|offen|n\.?\s?b\.?)$/i.test((s || "").trim());
 }
 
-// Gemeinsame Aufbereitung für CSV und Excel: Kopfzeilen erkennen, Zeilen in
-// Mitglieder-Objekte umwandeln, unbesetzte Zeilen entfernen, sortieren.
-function rowsToMembers(rows) {
-    if (rows.length < 1) return [];
+// --- SPALTEN-ZUORDNUNG ---
+const FELDER = [
+    { key: 'Vorname', label: 'Vorname', exact: ['vorname', 'rufname', 'firstname'], contains: ['vorname'] },
+    { key: 'Nachname', label: 'Nachname', exact: ['name', 'nachname', 'familienname', 'lastname', 'surname'], contains: ['nachname', 'familienname'] },
+    { key: 'Typ', label: 'Organisation / Fraktion', exact: ['organisation', 'org', 'fraktion', 'partei', 'gruppe', 'verband', 'institution', 'entsendung', 'typ'], contains: ['organisation', 'fraktion', 'partei', 'gruppe', 'verband', 'institution', 'entsend', 'typ'] },
+    { key: 'Status', label: 'Status / Rolle', exact: ['status', 'rolle', 'funktion', 'stimmrecht', 'mitgliedschaft'], contains: ['status', 'rolle', 'funktion', 'stimmrecht', 'mitgliedschaft'] },
+    { key: 'Stadtrat', label: 'Stadtrat (ja/nein)', exact: ['stadtrat', 'stadträtin', 'sr'], contains: ['stadtrat', 'stadträt'] },
+    { key: 'Kennung', label: 'Kennung', exact: ['kennung'], contains: ['kennung'] },
+    { key: 'Bemerkung', label: 'Bemerkung', exact: ['bemerkung', 'anmerkung', 'notiz', 'kommentar'], contains: ['bemerk', 'anmerk', 'notiz', 'kommentar'] }
+];
 
-    const rawHeaders = rows[0].map(h => String(h || "").trim());
-    const headers = rawHeaders.map(h => {
-        const s = h.toLowerCase();
-        if (s === 'vorname') return 'Vorname';
-        if (s === 'name' || s === 'nachname') return 'Nachname';
-        if (s.includes('stat') || s.includes('rolle')) return 'Status';
-        if (s.includes('org') || s.includes('frak') || s.includes('part') || s.includes('typ')) return 'Typ';
-        if (s.includes('stadt')) return 'Stadtrat';
-        if (s.includes('kennung')) return 'Kennung';
-        if (s.includes('bemerk')) return 'Bemerkung';
-        return h;
+// Findet die Kopfzeile: unter den ersten 15 Zeilen diejenige mit den meisten erkannten Überschriften
+// (Titelzeilen oder Leerzeilen über der Tabelle stören dann nicht).
+function detectHeaderRow(rows) {
+    let best = 0, bestScore = -1;
+    rows.slice(0, 15).forEach((row, i) => {
+        const cells = row.map(normText);
+        const score = FELDER.filter(f => cells.some(c => f.exact.includes(c))).length;
+        if (score > bestScore) { best = i; bestScore = score; }
     });
+    return best;
+}
 
-    let members = rows.slice(1).map(values => {
-        const obj = { Vorname: "", Nachname: "", Status: "", Typ: "", Stadtrat: "", Kennung: "", Bemerkung: "" };
-        headers.forEach((header, i) => { if (values[i] !== undefined) obj[header] = String(values[i] || "").trim(); });
+// Erst exakte Überschriften, dann Teiltreffer; jede Spalte nur einmal vergeben.
+function guessMapping(headers) {
+    const norm = headers.map(normText);
+    const mapping = {};
+    const used = new Set();
+    const pass = (words, exact) => FELDER.forEach(f => {
+        if (mapping[f.key] !== undefined) return;
+        const i = norm.findIndex((h, idx) => h && !used.has(idx) && words(f).some(w => exact ? h === w : h.includes(w)));
+        if (i !== -1) { mapping[f.key] = i; used.add(i); }
+    });
+    pass(f => f.exact, true);
+    pass(f => f.contains, false);
+    FELDER.forEach(f => { if (mapping[f.key] === undefined) mapping[f.key] = -1; });
+    return mapping;
+}
+
+function cleanCell(v) {
+    return String(v === undefined || v === null ? "" : v).replace(/\s+/g, " ").trim();
+}
+
+// Baut Mitglieder und Prüfbericht aus Rohzeilen + Zuordnung.
+function buildMembers(state) {
+    const { rows, headerRow, mapping } = state;
+    const warnings = [];
+    const get = (row, key) => mapping[key] >= 0 ? cleanCell(row[mapping[key]]) : "";
+
+    if (mapping.Vorname < 0 && mapping.Nachname < 0) warnings.push({ level: 'error', text: "Es ist weder Vorname noch Nachname zugeordnet – so lassen sich keine Mitglieder bilden." });
+    if (mapping.Status < 0) warnings.push({ level: 'error', text: "Keine Spalte für den Status zugeordnet – alle Mitglieder würden unter „Sonstige“ landen und niemand wäre stimmberechtigt." });
+    if (mapping.Typ < 0) warnings.push({ level: 'warn', text: "Keine Spalte für die Organisation zugeordnet – Nachrücken von Stellvertretern und der Soll-Ist-Vergleich funktionieren dann nicht." });
+
+    let leer = 0;
+    const members = [];
+    rows.slice(headerRow + 1).forEach((row, i) => {
+        const obj = { Vorname: get(row, 'Vorname'), Nachname: get(row, 'Nachname'), Status: get(row, 'Status'), Typ: get(row, 'Typ'),
+            Stadtrat: get(row, 'Stadtrat'), Kennung: get(row, 'Kennung'), Bemerkung: get(row, 'Bemerkung'), _zeile: headerRow + i + 2 };
+        const hatInhalt = row.some(c => cleanCell(c));
         if (isPlaceholderName(obj.Vorname)) obj.Vorname = "";
         if (isPlaceholderName(obj.Nachname)) obj.Nachname = "";
-        obj['DisplayName'] = `${obj['Vorname']} ${obj['Nachname']}`.trim();
-        return obj;
+        if (/^(ja|j|x|yes|true|1|sr)$/i.test(obj.Stadtrat)) obj.Stadtrat = "ja";
+        obj.DisplayName = `${obj.Vorname} ${obj.Nachname}`.trim();
+        if (!obj.DisplayName) { if (hatInhalt) leer++; return; }
+        members.push(obj);
+    });
+    if (leer > 0) warnings.push({ level: 'info', text: `${leer} Zeile(n) ohne Namen oder mit Platzhalter (z. B. „nn“) übersprungen – unbesetzte Sitze, nicht als Person geführt.` });
+
+    // Status-Erkennung: jeder Rohwert und was daraus wurde
+    const statusTabelle = {};
+    members.forEach(m => {
+        const k = m.Status;
+        statusTabelle[k] = statusTabelle[k] || { n: 0, label: roleLabel(k) };
+        statusTabelle[k].n++;
+    });
+    const ohneStatus = members.filter(m => !m.Status.trim());
+    if (ohneStatus.length && mapping.Status >= 0) warnings.push({ level: 'warn', text: `${ohneStatus.length} Mitglied(er) ohne Status: ${ohneStatus.slice(0, 5).map(m => m.DisplayName).join(', ')}${ohneStatus.length > 5 ? ' …' : ''} – erscheinen unter „Sonstige“.` });
+    Object.keys(statusTabelle).forEach(k => {
+        if (k.trim() && !statusTabelle[k].label) warnings.push({ level: 'warn', text: `Status „${k}“ (${statusTabelle[k].n}×) nicht erkannt – erscheint unter „Sonstige“, nicht stimmberechtigt.` });
+        if (statusTabelle[k].label === "Stellvertretung (Stimmrecht unklar)") warnings.push({ level: 'warn', text: `Status „${k}“ (${statusTabelle[k].n}×): Stellvertretung ohne Angabe „stimmberechtigt“ oder „beratend“ – wird als Stellvertretung ohne Stimmrecht geführt.` });
     });
 
-    // Zeilen ohne Namen (unbesetzte Sitze) sind keine Personen
-    members = members.filter(m => m.DisplayName);
+    // Stimmberechtigte ohne Organisation können nicht vertreten werden
+    const ohneOrg = members.filter(m => mapping.Typ >= 0 && !m.Typ && roleOf(m.Status).isVoting);
+    if (ohneOrg.length) warnings.push({ level: 'warn', text: `${ohneOrg.length} stimmberechtigte(r) Mitglied(er) ohne Organisation: ${ohneOrg.slice(0, 5).map(m => m.DisplayName).join(', ')} – Stellvertretung kann nicht zugeordnet werden.` });
+
+    // Doppelte Einträge
+    const gesehen = {};
+    members.forEach(m => {
+        const k = normText(m.DisplayName) + "|" + normText(m.Typ) + "|" + normText(m.Status);
+        if (gesehen[k]) warnings.push({ level: 'warn', text: `„${m.DisplayName}“ (${m.Typ || 'ohne Organisation'}) kommt doppelt vor (Zeilen ${gesehen[k]} und ${m._zeile}).` });
+        else gesehen[k] = m._zeile;
+    });
+
+    // Stellvertreter in Organisationen ohne ordentliches stimmberechtigtes Mitglied
+    const ordOrgs = new Set(members.filter(m => { const r = roleOf(m.Status); return r.isVoting && !r.isStellv; }).map(m => normText(m.Typ)));
+    const verwaist = members.filter(m => { const r = roleOf(m.Status); return r.isVoting && r.isStellv && !ordOrgs.has(normText(m.Typ)); });
+    if (verwaist.length) warnings.push({ level: 'info', text: `${verwaist.length} Stellvertretung(en) ohne ordentliches stimmberechtigtes Mitglied in der Organisation: ${verwaist.slice(0, 4).map(m => m.DisplayName + ' (' + (m.Typ || '–') + ')').join(', ')}.` });
 
     members.sort((a, b) => {
         const wA = getWeight(a.Status); const wB = getWeight(b.Status);
         if (wA !== wB) return wA - wB;
         return (a.Typ || "").localeCompare(b.Typ || "") || (a.DisplayName || "").localeCompare(b.DisplayName || "");
     });
-    return members;
+    members.forEach(m => delete m._zeile);
+    return { members, warnings, statusTabelle };
 }
 
+// --- DATEI EINLESEN (Rohzeilen) ---
 // Text einlesen: UTF-8 (auch mit BOM) bevorzugt, sonst Windows-1252 (Excel-"CSV")
 function decodeText(buffer) {
     try {
-        return new TextDecoder('utf-8', { fatal: true }).decode(buffer).replace(/^\uFEFF/, '');
+        return new TextDecoder('utf-8', { fatal: true }).decode(buffer).replace(/^﻿/, '');
     } catch (e) {
         return new TextDecoder('windows-1252').decode(buffer);
     }
 }
 
-// --- CORE FUNCTIONS ---
-async function readCsv(file) {
+async function readCsvRows(file) {
     if (typeof Papa === 'undefined') throw new Error("PapaParse Bibliothek nicht geladen!");
     const text = decodeText(await file.arrayBuffer());
-    const results = Papa.parse(text, {
-        header: false,
-        skipEmptyLines: 'greedy',
-        delimiter: "" // automatisch: Semikolon, Komma oder Tab
-    });
-    return rowsToMembers(results.data);
+    const results = Papa.parse(text, { header: false, skipEmptyLines: 'greedy', delimiter: "" });
+    return { rows: results.data, distribution: [] };
 }
 
-async function readXlsx(file) {
+async function readXlsxRows(file) {
     if (typeof XLSX === 'undefined') throw new Error("SheetJS (xlsx) Bibliothek nicht geladen!");
     const workbook = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
     // Blatt für die Mitgliederliste (JHA oder erstes Blatt)
@@ -119,7 +231,7 @@ async function readXlsx(file) {
     const rows = XLSX.utils.sheet_to_json(workbook.Sheets[membersSheetName], { header: 1, defval: "" });
 
     // Soll-Verteilung einlesen, falls vorhanden
-    session.distribution = [];
+    let distribution = [];
     const distSheetName = workbook.SheetNames.find(n => n.toLowerCase() === 'verteilung');
     if (distSheetName) {
         const distRows = XLSX.utils.sheet_to_json(workbook.Sheets[distSheetName], { header: 1, defval: "" });
@@ -129,7 +241,7 @@ async function readXlsx(file) {
             const countIdx = rawDistHeaders.findIndex(h => h.toLowerCase().includes('wieviel') || h.toLowerCase().includes('anzahl'));
             const roleIdx = rawDistHeaders.findIndex(h => h.toLowerCase().includes('was') || h.toLowerCase().includes('rolle') || h.toLowerCase().includes('status'));
             if (orgIdx !== -1 && countIdx !== -1) {
-                session.distribution = distRows.slice(1).map(row => ({
+                distribution = distRows.slice(1).map(row => ({
                     Organisation: String(row[orgIdx] || "").trim(),
                     wieviel: parseInt(row[countIdx]) || 0,
                     was: roleIdx !== -1 ? String(row[roleIdx] || "").trim() : ""
@@ -137,7 +249,77 @@ async function readXlsx(file) {
             }
         }
     }
-    return rowsToMembers(rows);
+    return { rows, distribution };
+}
+
+async function loadImportState(file) {
+    const name = file.name.toLowerCase();
+    const raw = (name.endsWith('.xlsx') || name.endsWith('.xls')) ? await readXlsxRows(file) : await readCsvRows(file);
+    const headerRow = detectHeaderRow(raw.rows);
+    const headers = (raw.rows[headerRow] || []).map(cleanCell);
+    return { file, rows: raw.rows, distribution: raw.distribution, headerRow, headers, mapping: guessMapping(headers) };
+}
+
+// --- PRÜFBEREICH IM SETUP ---
+let importState = null;
+
+async function onMemberFileChosen(input) {
+    const box = document.getElementById('import-review');
+    const file = input.files[0];
+    importState = null;
+    if (!file) { box.classList.add('hidden'); box.innerHTML = ""; return; }
+    try {
+        importState = await loadImportState(file);
+        renderImportReview();
+    } catch (err) {
+        console.error("Fehler beim Einlesen:", err);
+        box.classList.remove('hidden');
+        box.innerHTML = `<div class="imp-msg imp-error">Datei konnte nicht gelesen werden: ${esc(err.message)}</div>`;
+    }
+}
+
+function onMappingChange(key, value) {
+    importState.mapping[key] = parseInt(value);
+    renderImportReview();
+}
+
+function renderImportReview() {
+    const box = document.getElementById('import-review');
+    if (!importState) { box.classList.add('hidden'); return; }
+    const { headers, mapping } = importState;
+    const result = buildMembers(importState);
+    importState.result = result;
+
+    const options = (sel) => `<option value="-1">– nicht vorhanden –</option>` + headers.map((h, i) =>
+        `<option value="${i}" ${sel === i ? 'selected' : ''}>${esc(h || `Spalte ${i + 1}`)}</option>`).join('');
+    const mappingHtml = FELDER.map(f => `
+        <label class="imp-field"><span>${esc(f.label)}</span>
+            <select onchange="onMappingChange('${f.key}', this.value)">${options(mapping[f.key])}</select>
+        </label>`).join('');
+
+    const statusRows = Object.keys(result.statusTabelle).map(k => {
+        const e = result.statusTabelle[k];
+        return `<tr><td>${esc(k || '(leer)')}</td><td class="${e.label ? '' : 'imp-bad'}">${esc(e.label || 'nicht erkannt → Sonstige')}</td><td class="imp-num">${e.n}</td></tr>`;
+    }).join('');
+
+    const order = { error: 0, warn: 1, info: 2 };
+    const warnHtml = result.warnings.slice().sort((a, b) => order[a.level] - order[b.level]).map(w =>
+        `<div class="imp-msg imp-${w.level}">${esc(w.text)}</div>`).join('') || `<div class="imp-msg imp-ok">Keine Auffälligkeiten.</div>`;
+
+    const vorschau = result.members.slice(0, 5).map(m =>
+        `<tr><td>${esc(m.DisplayName)}</td><td>${esc(m.Typ)}</td><td>${esc(m.Status)}</td></tr>`).join('');
+
+    box.classList.remove('hidden');
+    box.innerHTML = `
+        <div class="imp-title">Prüfung der Mitgliederliste: ${result.members.length} Mitglieder erkannt</div>
+        <div class="imp-grid">${mappingHtml}</div>
+        <div class="imp-sub">Hinweise</div>${warnHtml}
+        <details class="imp-details"><summary>Status-Erkennung (${Object.keys(result.statusTabelle).length} Schreibweisen)</summary>
+            <table class="imp-table"><thead><tr><th>In der Liste</th><th>Erkannt als</th><th>Anzahl</th></tr></thead><tbody>${statusRows}</tbody></table>
+        </details>
+        <details class="imp-details"><summary>Vorschau (erste 5 von ${result.members.length})</summary>
+            <table class="imp-table"><thead><tr><th>Name</th><th>Organisation</th><th>Status</th></tr></thead><tbody>${vorschau}</tbody></table>
+        </details>`;
 }
 
 
@@ -175,13 +357,18 @@ async function initializeSession() {
     try {
         console.log("Initialisiere Session...");
         if (mFile) {
-            const fileName = mFile.name.toLowerCase();
-            if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
-                session.members = await readXlsx(mFile);
-            } else {
-                session.members = await readCsv(mFile);
-                session.distribution = []; // eine CSV kennt kein Blatt "Verteilung"
+            // Prüfbereich nutzen (inkl. manueller Spaltenzuordnung); sonst Datei jetzt einlesen
+            if (!importState || importState.file !== mFile) importState = await loadImportState(mFile);
+            const result = buildMembers(importState);
+            if (result.members.length === 0) {
+                renderImportReview();
+                alert("In der Datei wurden keine Mitglieder erkannt. Bitte die Spaltenzuordnung unter der Dateiauswahl prüfen.");
+                return;
             }
+            const fehler = result.warnings.filter(w => w.level === 'error');
+            if (fehler.length && !confirm(fehler.map(w => w.text).join('\n\n') + '\n\nTrotzdem fortfahren?')) return;
+            session.members = result.members;
+            session.distribution = importState.distribution; // leer bei CSV
         }
 
         const newAgenda = parseAgenda(aText);
@@ -316,10 +503,7 @@ function getActiveTopAttendanceAnalysis() {
     // Gruppen zuordnen
     const memberStatuses = session.members.map((m, idx) => {
         const isPresent = data.attendance.includes(idx);
-        const s = (m.Status || "").toLowerCase();
-        const isStellv = s.includes('stellv');
-        const isVoting = (s.includes('stimmbereit') || s.includes('stimmberecht') || s.includes('beschließend'));
-        const isConsulting = s.includes('beratend');
+        const { isStellv, isVoting, isConsulting } = roleOf(m.Status);
         
         let group = "Stellvertretung / Sonstige";
         if (isVoting && !isStellv) group = "Stimmberechtigte Mitglieder";
@@ -384,16 +568,6 @@ function renderAttendance() {
         });
     } else {
         // Standard (Rolle)
-        const getWeight = (s) => {
-            s = (s || "").toLowerCase();
-            const isStellv = s.includes('stellv');
-            const isVoting = s.includes('stimmbereit') || s.includes('stimmberecht') || s.includes('beschließend');
-            const isConsulting = s.includes('beratend');
-            if (isVoting && !isStellv) return 1;
-            if (isConsulting && !isStellv) return 2;
-            if (isStellv) return 3;
-            return 4;
-        };
         sortedStatuses.sort((a, b) => {
             const wA = getWeight(a.member.Status); const wB = getWeight(b.member.Status);
             if (wA !== wB) return wA - wB;
