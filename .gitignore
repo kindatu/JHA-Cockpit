@@ -1,0 +1,5 @@
+# Echte Mitgliederdaten (personenbezogen) nicht ins Repo
+*.csv
+*.xlsx
+*.xls
+JHA_Export_*.json

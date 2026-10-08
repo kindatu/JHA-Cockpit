@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JHA Cockpit - Sitzungsmanagement</title>
+
+    <!-- Lokale Assets (Offline-fähig) -->
+    <link rel="stylesheet" href="css/fonts.css">
+    <link rel="stylesheet" href="css/style.css">
+
+    <style>
+        /* Spezifische Formatierungen für Fonts und Druck */
+
+        :root {
+            --jha-blue: #003d86;
+        }
+
+        body {
+            background-color: #f1f5f9;
+            font-family: 'Source Sans Pro', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: #0f172a;
+        }
+
+        /* Überschriften-Vorgabe: Ubuntu */
+        h1,
+        h2,
+        h3,
+        h4,
+        h5,
+        h6,
+        .font-black,
+        .font-bold,
+        .group-header,
+        .sidebar-item .top-nr,
+        #quorum-info {
+            font-family: 'Ubuntu', sans-serif;
+        }
+
+        /* UI Komponenten */
+        .card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            padding: 1.5rem;
+        }
+
+        .sidebar-item {
+            transition: all 0.2s ease-in-out;
+            border-left: 4px solid transparent;
+        }
+
+        .sidebar-item:hover {
+            background-color: #e2e8f0;
+        }
+
+        .sidebar-active {
+            background-color: #cbd5e1 !important;
+            border-left: 4px solid #003d86 !important;
+        }
+
+        .group-header {
+            background-color: #1e293b;
+            color: white;
+            font-weight: 700;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            padding: 0.5rem 0.75rem;
+        }
+
+        .member-row {
+            border-bottom: 1px solid #f1f5f9;
+            transition: background-color 0.2s;
+        }
+
+        .member-row:hover {
+            background-color: #f8fafc;
+        }
+
+        .collapsed {
+            display: none;
+        }
+
+        /* Print Logic - Verwendet ebenfalls Ubuntu & Source Sans Pro */
+        @media print {
+            .no-print {
+                display: none !important;
+            }
+
+            #print-area {
+                display: block !important;
+            }
+
+            body {
+                background-color: white;
+                overflow: visible !important;
+                font-family: 'Source Sans Pro', sans-serif;
+            }
+
+            h1,
+            h2,
+            h3,
+            h4,
+            .font-bold {
+                font-family: 'Ubuntu', sans-serif !important;
+            }
+
+            main {
+                display: none !important;
+            }
+
+            .print-page-break {
+                page-break-before: always;
+            }
+
+            .print-top-block {
+                page-break-inside: avoid;
+                border-bottom: 1px solid #e2e8f0;
+                padding-bottom: 1.5rem;
+                margin-bottom: 1.5rem;
+            }
+
+            .divide-y>*+* {
+                border-top-width: 1px;
+                border-color: #f1f5f9;
+            }
+
+            /* Logo Sichtbarkeit (Weißes Logo auf Weißem Grund fixieren) */
+            #print-logo svg .cls-1 {
+                fill: #000 !important;
+            }
+        }
+
+        #print-area {
+            display: none;
+        }
+
+        #reset-modal,
+        #distribution-modal {
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(4px);
+        }
+
+        .modal-content-scroll {
+            max-height: 80vh !important;
+            display: flex !important;
+            flex-direction: column !important;
+            overflow: hidden !important;
+        }
+
+        .status-green {
+            background-color: #dcfce7 !important;
+            color: #166534 !important;
+        }
+        .status-yellow {
+            background-color: #fef9c3 !important;
+            color: #854d0e !important;
+        }
+        .status-red {
+            background-color: #fee2e2 !important;
+            color: #991b1b !important;
+        }
+        .status-blue {
+            background-color: #dbeafe !important;
+            color: #1e40af !important;
+        }
+
+        /* Glass Header style */
+        .glass-header {
+            background-color: rgba(15, 23, 42, 0.85) !important;
+            backdrop-filter: blur(12px) !important;
+            -webkit-backdrop-filter: blur(12px) !important;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+        }
+
+        /* Interactive Buttons scaling */
+        .btn-interactive {
+            transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+        .btn-interactive:active {
+            transform: scale(0.96) !important;
+        }
+
+        /* Badge Pop-In Animation */
+        @keyframes popIn {
+            0% { transform: scale(0.8); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .badge-pop {
+            animation: popIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards !important;
+        }
+    </style>
+</head>
+
+<body class="flex flex-col h-screen overflow-hidden">
+
+    <!-- Header -->
+    <header class="glass-header text-white p-4 no-print flex justify-between items-center shrink-0 shadow-lg sticky top-0 z-50">
+        <div class="flex items-center gap-4">
+            <!-- Logo Container: logo.svg mit SVG Fallback -->
+            <div id="logo-container"
+                class="bg-[#003d86] p-1 rounded shadow-inner flex items-center justify-center overflow-hidden w-[42px] h-[42px]">
+                <img id="main-logo" src="logo.svg" alt="Logo" class="max-h-full max-w-full"
+                    onerror="this.style.display='none'; document.getElementById('logo-fallback').classList.remove('hidden');">
+                <div id="logo-fallback" class="hidden">
+                    <svg width="34" height="34" viewBox="0 0 100 100">
+                        <rect width="100" height="100" fill="#003d86" rx="12" />
+                        <text x="50" y="75" font-family="Arial, sans-serif" font-size="75" fill="white"
+                            text-anchor="middle" font-weight="bold">E</text>
+                    </svg>
+                </div>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold leading-tight uppercase tracking-tight text-white">JHA Cockpit v2.28</h1>
+                <p id="session-title" class="text-xs text-slate-400 font-medium tracking-wide italic">Sitzungsverwaltung
+                    aktiv</p>
+            </div>
+        </div>
+        <div class="flex gap-2 items-center">
+            <button onclick="prepareAndPrint()"
+                class="bg-slate-100 text-slate-900 hover:bg-white px-4 py-1.5 rounded text-sm transition font-bold shadow-lg flex items-center gap-2 btn-interactive">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z">
+                    </path>
+                </svg>
+                Drucken
+            </button>
+            <div class="h-6 w-px bg-slate-700 mx-1"></div>
+            <button onclick="exportFullSession()"
+                class="bg-blue-600 hover:bg-blue-700 px-4 py-1.5 rounded text-sm transition font-bold text-white shadow-lg btn-interactive">Speichern</button>
+            <label
+                class="bg-slate-700 hover:bg-slate-600 px-4 py-1.5 rounded text-sm cursor-pointer transition text-white btn-interactive">
+                Laden
+                <input type="file" id="importJson" class="hidden" onchange="importFullSession(event)">
+            </label>
+            <button id="btn-edit-setup" onclick="openSetupView()"
+                class="hidden text-slate-400 hover:text-white text-xs border border-slate-700 px-3 py-1.5 rounded transition ml-2 btn-interactive">
+                Setup bearbeiten
+            </button>
+            <button id="btn-distribution-check" onclick="openDistributionModal()"
+                class="hidden text-slate-400 hover:text-white text-xs border border-slate-700 px-3 py-1.5 rounded transition ml-2 btn-interactive">
+                Besetzungs-Status
+            </button>
+            <button id="btn-back-to-setup" onclick="confirmReset()"
+                class="hidden text-red-400 hover:text-red-500 text-xs border border-red-900/20 px-3 py-1.5 rounded transition ml-2 font-bold btn-interactive">
+                Sitzung beenden
+            </button>
+        </div>
+    </header>
+
+    <!-- Setup View -->
+    <div id="setup-view" class="flex-grow flex items-center justify-center p-6 overflow-y-auto no-print">
+        <div class="card max-w-4xl w-full my-8 border-t-8 border-blue-600 shadow-2xl">
+            <h2
+                class="text-2xl font-black mb-8 border-b pb-4 tracking-tight text-slate-900 text-center md:text-left uppercase">
+                Sitzungsvorbereitung</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-10">
+                <div class="space-y-4">
+                    <h3 class="font-bold flex items-center gap-2 text-slate-800 text-lg">
+                        <span
+                            class="bg-blue-600 text-white w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold">1</span>
+                        Gremiumsliste (.csv, .xlsx)
+                    </h3>
+                    <input type="file" id="memberCsv" accept=".csv,.xlsx"
+                        class="w-full border-2 border-slate-100 p-3 rounded-xl text-sm bg-slate-50 focus:border-blue-500 outline-none transition">
+                    <div
+                        class="p-4 bg-slate-50 rounded-xl border border-slate-200 text-[11px] space-y-2 leading-relaxed">
+                        <p class="font-bold uppercase tracking-widest text-[10px] text-slate-500">Hinweis:</p>
+                        <p>Unterstützt Excel (<strong>.xlsx</strong>) und CSV (Trennzeichen: Semikolon).</p>
+                        <p class="text-blue-700 font-bold border-l-2 border-blue-600 pl-2">Stimmberechtigte Mitglieder
+                            erscheinen automatisch ganz oben.</p>
+                    </div>
+                </div>
+                <div class="space-y-4">
+                    <h3 class="font-bold flex items-center gap-2 text-slate-800 text-lg">
+                        <span
+                            class="bg-blue-600 text-white w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold">2</span>
+                        Tagesordnung (PDF-Text)
+                    </h3>
+                    <textarea id="agendaText"
+                        class="w-full h-48 border-2 border-slate-100 p-4 rounded-xl text-sm font-mono focus:border-blue-500 outline-none bg-slate-50 shadow-inner"
+                        placeholder="Tagesordnungspunkte inkl. Unterziffern hier reinkopieren..."></textarea>
+                </div>
+            </div>
+            <div class="mt-10 pt-8 border-t flex flex-col items-center">
+                <button onclick="initializeSession()"
+                    class="w-full md:w-96 bg-blue-600 text-white py-4 rounded-2xl font-black hover:bg-blue-700 transition shadow-xl uppercase tracking-widest text-base">Sitzung
+                    starten</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Workspace -->
+    <main id="main-workspace" class="hidden flex-grow flex overflow-hidden no-print">
+        <aside class="w-72 bg-slate-100 border-r flex flex-col shrink-0 shadow-inner">
+            <div
+                class="p-4 font-black text-slate-500 border-b bg-slate-200 uppercase text-[10px] tracking-widest text-center">
+                Tagesordnung</div>
+            <nav id="agenda-sidebar" class="flex-grow overflow-y-auto"></nav>
+
+            <div class="border-t border-slate-200 bg-slate-50 p-2">
+                <div class="text-[9px] font-black uppercase text-slate-400 px-3 mb-1 tracking-widest">Anderes</div>
+                <div id="sidebar-general-notes" onclick="switchToGeneralNotes()"
+                    class="sidebar-item cursor-pointer p-4 rounded-xl text-sm transition flex items-center gap-3">
+                    <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
+                        </path>
+                    </svg>
+                    <span class="font-bold">Allgemeine Notizen</span>
+                </div>
+            </div>
+        </aside>
+
+        <section class="flex-grow p-6 overflow-y-auto bg-white">
+
+            <!-- Mode: TOP -->
+            <div id="top-view-container">
+                <div id="current-top-header"
+                    class="mb-8 flex flex-col md:flex-row justify-between items-start gap-4 border-b pb-6 text-slate-900">
+                    <div class="flex-grow">
+                        <h2 id="top-title" class="text-3xl font-black tracking-tight leading-tight mb-1 text-slate-900">
+                            TOP wird geladen...</h2>
+                        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Bearbeitungsmodus
+                            Tagesordnungspunkt</p>
+                    </div>
+                    <div id="quorum-info"
+                        class="text-sm font-bold px-5 py-2.5 rounded-xl shadow-inner border-2 bg-slate-50 uppercase tracking-tighter shrink-0">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-10">
+                    <div class="space-y-6">
+                        <div
+                            class="card border-2 border-slate-100 bg-slate-50/30 relative overflow-hidden text-slate-800">
+                            <div class="flex justify-between items-center mb-4 px-2">
+                                <h3 class="font-black uppercase text-[10px] tracking-widest flex items-center gap-2">
+                                    <span class="w-2 h-4 bg-blue-600 rounded-sm"></span>
+                                    Anwesenheit Gremium
+                                </h3>
+                                <div class="flex items-center gap-2.5">
+                                    <span class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Sortieren:</span>
+                                    <select id="sort-members-select" onchange="changeSortMode(this.value)" class="text-[10px] font-bold uppercase text-slate-700 border border-slate-200 px-2 py-1 rounded-lg bg-white outline-none">
+                                        <option value="default">Standard</option>
+                                        <option value="name">Name</option>
+                                        <option value="org">Organisation</option>
+                                    </select>
+                                    <button id="toggle-attendance-btn" onclick="toggleAttendanceUI()"
+                                        class="text-[10px] font-bold uppercase text-blue-600 border border-blue-200 px-3 py-1 rounded-lg bg-white transition shadow-sm hover:bg-blue-50">Einklappen</button>
+                                </div>
+                            </div>
+                            <div id="attendance-table-container"
+                                class="border-2 border-slate-100 rounded-xl bg-white shadow-sm overflow-hidden">
+                                <table class="w-full text-sm border-separate border-spacing-0">
+                                    <thead
+                                        class="bg-slate-50 text-slate-500 uppercase text-[9px] font-black tracking-widest sticky top-0 z-10">
+                                        <tr>
+                                            <th class="p-3 text-left border-b">Name</th>
+                                            <th class="p-3 text-left border-b">Organisation</th>
+                                            <th class="p-3 text-center border-b">Dabei?</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="attendance-list"></tbody>
+                                </table>
+                            </div>
+                            <div id="attendance-collapsed-info"
+                                class="hidden text-center py-10 text-slate-400 text-xs font-medium italic">
+                                Anwesenheitsliste ausgeblendet.</div>
+                        </div>
+
+                        <div class="card border-2 border-slate-100 bg-white shadow-sm text-slate-800">
+                            <h3 class="font-black uppercase text-[10px] tracking-widest mb-4 flex items-center gap-2">
+                                <span class="w-2 h-4 bg-orange-500 rounded-sm"></span>
+                                Gästeliste
+                            </h3>
+                            <div id="global-guest-list" class="space-y-2 mb-4"></div>
+                            <div class="flex gap-2 pt-4 border-t border-slate-50">
+                                <input type="text" id="guest-name" placeholder="Name"
+                                    class="flex-grow border-2 border-slate-100 p-2 rounded-xl text-sm outline-none focus:border-orange-300">
+                                <input type="text" id="guest-org" placeholder="Org."
+                                    class="w-1/4 border-2 border-slate-100 p-2 rounded-xl text-sm outline-none focus:border-orange-300">
+                                <button onclick="addGlobalGuest()"
+                                    class="bg-slate-800 text-white px-4 py-2 rounded-xl font-black hover:bg-black transition text-sm shadow-sm">+</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-8">
+                        <div class="card border-2 border-slate-100 shadow-sm ring-4 ring-slate-50/50">
+                            <h3
+                                class="font-black text-slate-700 uppercase text-[10px] tracking-widest mb-4 flex justify-between items-center">
+                                <span>Protokollnotizen</span>
+                                <span id="top-indicator-badge"
+                                    class="text-[9px] bg-slate-100 text-slate-400 px-2 py-0.5 rounded font-bold uppercase"></span>
+                            </h3>
+                            <textarea id="top-notes" oninput="saveCurrentTopState()"
+                                class="w-full h-[450px] border-2 border-slate-50 p-5 rounded-2xl text-sm focus:border-blue-300 outline-none resize-none leading-relaxed shadow-inner transition text-slate-800"
+                                placeholder="Inhalte festhalten..."></textarea>
+                        </div>
+
+                        <div class="card border-2 border-slate-100 bg-slate-50 shadow-sm text-slate-800">
+                            <h3 class="font-black uppercase text-[10px] tracking-widest mb-4 text-slate-700">
+                                Beschlussfassung</h3>
+                            <div class="grid grid-cols-2 gap-6 mb-6">
+                                <div class="bg-white p-4 rounded-2xl border-2 border-green-100 shadow-sm text-center">
+                                    <label
+                                        class="block text-[9px] font-bold text-green-600 uppercase mb-2 tracking-tighter">Ja-Stimmen</label>
+                                    <input type="number" id="vote-yes" oninput="saveCurrentTopState()"
+                                        class="w-full text-4xl font-black p-1 rounded text-center outline-none bg-transparent text-slate-900"
+                                        min="0">
+                                </div>
+                                <div class="bg-white p-4 rounded-2xl border-2 border-red-100 shadow-sm text-center">
+                                    <label
+                                        class="block text-[9px] font-bold text-red-600 uppercase mb-2 tracking-tighter">Nein-Stimmen</label>
+                                    <input type="number" id="vote-no" oninput="saveCurrentTopState()"
+                                        class="w-full text-4xl font-black p-1 rounded text-center outline-none bg-transparent text-slate-900"
+                                        min="0">
+                                </div>
+                            </div>
+                            <input type="text" id="vote-result-text" oninput="saveCurrentTopState()"
+                                placeholder="Zusammenfassung (z.B. Mehrheitlich angenommen)"
+                                class="w-full border-2 border-slate-100 p-4 rounded-2xl text-sm font-bold focus:border-blue-300 outline-none transition">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Mode: General -->
+            <div id="general-view-container" class="hidden">
+                <div class="mb-8 border-b pb-6 text-slate-900">
+                    <h2 class="text-3xl font-black tracking-tight leading-none mb-1 uppercase">Sitzungsübergreifende
+                        Vermerke</h2>
+                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Inhalte ohne spezifischen
+                        TOP-Bezug</p>
+                </div>
+                <div class="card border-2 border-blue-100 shadow-xl ring-8 ring-blue-50/50 rounded-3xl">
+                    <textarea id="general-notes-area" oninput="saveCurrentTopState()"
+                        class="w-full h-[calc(100vh-320px)] border-2 border-slate-50 p-8 rounded-2xl text-base focus:border-blue-400 outline-none resize-none leading-relaxed shadow-inner transition text-slate-800"
+                        placeholder="Besondere Vorkommnisse, allgemeine Hinweise, Protokollführer..."></textarea>
+                </div>
+            </div>
+
+        </section>
+    </main>
+
+    <!-- Final Print View -->
+    <div id="print-area" class="p-12 text-slate-900 bg-white">
+        <div class="flex justify-between items-start border-b-4 border-slate-900 pb-8 mb-10">
+            <!-- Inline SVG Logo für den Ausdruck -->
+            <div id="print-logo" style="width: 42px; height: 42px;">
+                <!-- Inline SVG für volle Kontrolle über Druckfarben, fixierte Größe für Druckkompatibilität -->
+                <svg id="Ebene_1" data-name="Ebene 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 566.93 566.93"
+                    style="width: 100%; height: 100%; display: block;">
+                    <defs>
+                        <style>
+                            .cls-1 {
+                                fill: #fff;
+                            }
+                        </style>
+                    </defs>
+                    <g id="Bild-Marke">
+                        <rect class="cls-1" y="239.86" width="87.2" height="87.2" />
+                        <rect class="cls-1" y="119.93" width="87.2" height="87.2" />
+                        <rect class="cls-1" y="359.79" width="87.2" height="87.2" />
+                        <rect class="cls-1" y="479.72" width="87.2" height="87.2" />
+                        <rect class="cls-1" x="119.93" y="239.86" width="87.2" height="87.2" />
+                        <rect class="cls-1" x="119.93" width="87.2" height="87.2" />
+                        <rect class="cls-1" width="87.2" height="87.2" />
+                        <rect class="cls-1" x="119.93" y="119.93" width="87.2" height="87.2" />
+                        <rect class="cls-1" x="119.93" y="359.79" width="87.2" height="87.2" />
+                        <rect class="cls-1" x="119.93" y="479.72" width="87.2" height="87.2" />
+                        <rect class="cls-1" x="359.79" y="239.86" width="87.2" height="87.2" />
+                        <rect class="cls-1" x="359.79" width="87.2" height="87.2" />
+                        <rect class="cls-1" x="359.79" y="119.93" width="87.2" height="87.2" />
+                        <rect class="cls-1" x="359.79" y="359.79" width="87.2" height="87.2" />
+                        <rect class="cls-1" x="359.79" y="479.72" width="87.2" height="87.2" />
+                        <rect class="cls-1" x="239.86" y="239.86" width="87.2" height="87.2" />
+                        <rect class="cls-1" x="239.86" width="87.2" height="87.2" />
+                        <rect class="cls-1" x="239.86" y="119.93" width="87.2" height="87.2" />
+                        <rect class="cls-1" x="239.86" y="359.79" width="87.2" height="87.2" />
+                        <rect class="cls-1" x="239.86" y="479.72" width="87.2" height="87.2" />
+                        <rect class="cls-1" x="479.72" width="87.2" height="87.2" />
+                        <rect class="cls-1" x="479.72" y="119.93" width="87.2" height="87.2" />
+                        <rect class="cls-1" x="479.72" y="359.79" width="87.2" height="87.2" />
+                        <rect class="cls-1" x="479.72" y="479.72" width="87.2" height="87.2" />
+                    </g>
+                </svg>
+            </div>
+            <div class="text-right">
+                <h2 class="text-3xl font-black uppercase tracking-tighter mb-1">Niederschrift</h2>
+                <p class="font-bold text-slate-500 uppercase text-xs tracking-widest" id="print-session-info"></p>
+            </div>
+        </div>
+
+        <section class="mb-12">
+            <h3
+                class="text-[11px] font-black uppercase tracking-widest text-slate-900 mb-6 border-b-2 border-slate-200 pb-2">
+                1. Anwesenheit</h3>
+            <div id="print-attendance-content" class="text-sm space-y-1 mb-8"></div>
+            <div id="print-guests-section" class="hidden mt-6 p-4 bg-slate-50 rounded-xl">
+                <p class="text-[10px] font-black text-slate-500 uppercase mb-2">Gäste:</p>
+                <div id="print-guests-content" class="text-sm italic text-slate-800 font-medium"></div>
+            </div>
+        </section>
+
+        <section id="print-general-notes-section" class="mb-12 hidden">
+            <h3
+                class="text-[11px] font-black uppercase tracking-widest text-slate-900 mb-6 border-b-2 border-slate-200 pb-2">
+                2. Allgemeine Vermerke</h3>
+            <div id="print-general-notes-content"
+                class="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed font-medium"></div>
+        </section>
+
+        <section id="print-protocol-section" class="print-page-break pt-8">
+            <h3
+                class="text-[11px] font-black uppercase tracking-widest text-slate-900 mb-8 border-b-2 border-slate-200 pb-2">
+                3. Beratungsverlauf und Beschlüsse</h3>
+            <div id="print-protocol-content" class="space-y-12"></div>
+        </section>
+
+        <div
+            class="mt-20 border-t border-slate-300 pt-8 flex justify-between text-[10px] text-slate-400 font-black italic tracking-widest uppercase">
+            <div>Generiert mit JHA Cockpit v2.28</div>
+            <div id="print-timestamp"></div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div id="reset-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div
+            class="bg-white p-10 rounded-3xl shadow-2xl max-w-sm w-full border-4 border-slate-100 text-center text-slate-900">
+            <h3 class="text-xl font-black mb-2 uppercase tracking-tight">Sitzung beenden?</h3>
+            <p class="text-sm text-slate-500 mb-8 leading-relaxed font-medium">Alle ungespeicherten Daten gehen
+                verloren.</p>
+            <div class="flex gap-4">
+                <button onclick="cancelReset()"
+                    class="flex-1 bg-slate-100 text-slate-700 py-3 rounded-2xl font-bold transition hover:bg-slate-200">Abbrechen</button>
+                <button onclick="executeReset()"
+                    class="flex-1 bg-red-600 text-white py-3 rounded-2xl font-bold transition hover:bg-red-700 shadow-lg">Beenden</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="distribution-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="bg-white p-8 rounded-3xl shadow-2xl max-w-4xl w-full border-4 border-slate-100 text-slate-900 modal-content-scroll">
+            <h3 class="text-xl font-black mb-4 uppercase tracking-tight text-center">Soll-Ist-Vergleich der Besetzung</h3>
+            <div class="overflow-y-auto flex-grow mb-6">
+                <table class="w-full text-xs text-left border-collapse">
+                    <thead>
+                        <tr class="bg-slate-100 text-slate-600 uppercase text-[9px] font-black tracking-widest">
+                            <th class="p-3 border-b">Organisation</th>
+                            <th class="p-3 border-b">Rolle</th>
+                            <th class="p-3 border-b text-center">Soll-Sitze</th>
+                            <th class="p-3 border-b text-center">Ist (Ordentlich)</th>
+                            <th class="p-3 border-b text-center">Ist (Stellv.)</th>
+                            <th class="p-3 border-b text-center">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="distribution-modal-table-body">
+                        <!-- Wird dynamisch befüllt -->
+                    </tbody>
+                </table>
+            </div>
+            <div class="flex justify-end">
+                <button onclick="closeDistributionModal()"
+                    class="bg-slate-800 text-white px-6 py-2.5 rounded-xl font-bold transition hover:bg-black shadow-md">Schließen</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/papaparse.min.js"></script>
+    <script src="js/xlsx.full.min.js"></script>
+    <script src="js/app.js"></script>
+</body>
+
+</html>
