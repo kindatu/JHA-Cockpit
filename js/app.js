@@ -26,174 +26,118 @@ window.addEventListener('beforeunload', (e) => {
     }
 });
 
+// --- HILFSFUNKTIONEN ---
+// HTML-Maskierung: Alles, was aus Dateien oder Eingabefeldern stammt und per innerHTML
+// ausgegeben wird, läuft hier durch (Namen, Organisationen, Notizen, Beschlusstexte).
+function esc(v) {
+    return String(v === undefined || v === null ? "" : v)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+// Rollen-Gewicht für die Standardsortierung (eine Stelle statt dreimal im Code)
+function getWeight(status) {
+    const s = (status || "").toLowerCase();
+    const isStellv = s.includes('stellv');
+    const isVoting = s.includes('stimmbereit') || s.includes('stimmberecht') || s.includes('beschließend');
+    const isConsulting = s.includes('beratend');
+    if (isVoting && !isStellv) return 1;
+    if (isConsulting && !isStellv) return 2;
+    if (isStellv) return 3;
+    return 4;
+}
+
+// Platzhalter-Namen aus der Quellliste ("nn", "N.N.", "-") gelten als unbesetzt
+function isPlaceholderName(s) {
+    return /^(n\.?\s?n\.?|-+|\?+|tbd|offen|n\.?\s?b\.?)$/i.test((s || "").trim());
+}
+
+// Gemeinsame Aufbereitung für CSV und Excel: Kopfzeilen erkennen, Zeilen in
+// Mitglieder-Objekte umwandeln, unbesetzte Zeilen entfernen, sortieren.
+function rowsToMembers(rows) {
+    if (rows.length < 1) return [];
+
+    const rawHeaders = rows[0].map(h => String(h || "").trim());
+    const headers = rawHeaders.map(h => {
+        const s = h.toLowerCase();
+        if (s === 'vorname') return 'Vorname';
+        if (s === 'name' || s === 'nachname') return 'Nachname';
+        if (s.includes('stat') || s.includes('rolle')) return 'Status';
+        if (s.includes('org') || s.includes('frak') || s.includes('part') || s.includes('typ')) return 'Typ';
+        if (s.includes('stadt')) return 'Stadtrat';
+        if (s.includes('kennung')) return 'Kennung';
+        if (s.includes('bemerk')) return 'Bemerkung';
+        return h;
+    });
+
+    let members = rows.slice(1).map(values => {
+        const obj = { Vorname: "", Nachname: "", Status: "", Typ: "", Stadtrat: "", Kennung: "", Bemerkung: "" };
+        headers.forEach((header, i) => { if (values[i] !== undefined) obj[header] = String(values[i] || "").trim(); });
+        if (isPlaceholderName(obj.Vorname)) obj.Vorname = "";
+        if (isPlaceholderName(obj.Nachname)) obj.Nachname = "";
+        obj['DisplayName'] = `${obj['Vorname']} ${obj['Nachname']}`.trim();
+        return obj;
+    });
+
+    // Zeilen ohne Namen (unbesetzte Sitze) sind keine Personen
+    members = members.filter(m => m.DisplayName);
+
+    members.sort((a, b) => {
+        const wA = getWeight(a.Status); const wB = getWeight(b.Status);
+        if (wA !== wB) return wA - wB;
+        return (a.Typ || "").localeCompare(b.Typ || "") || (a.DisplayName || "").localeCompare(b.DisplayName || "");
+    });
+    return members;
+}
+
+// Text einlesen: UTF-8 (auch mit BOM) bevorzugt, sonst Windows-1252 (Excel-"CSV")
+function decodeText(buffer) {
+    try {
+        return new TextDecoder('utf-8', { fatal: true }).decode(buffer).replace(/^\uFEFF/, '');
+    } catch (e) {
+        return new TextDecoder('windows-1252').decode(buffer);
+    }
+}
+
 // --- CORE FUNCTIONS ---
 async function readCsv(file) {
-    console.log("Starte CSV-Einlesen...");
-    return new Promise((resolve, reject) => {
-        if (typeof Papa === 'undefined') {
-            reject(new Error("PapaParse Bibliothek nicht geladen!"));
-            return;
-        }
-        Papa.parse(file, {
-            header: false,
-            skipEmptyLines: 'greedy',
-            encoding: "windows-1252",
-            complete: function (results) {
-                console.log("CSV erfolgreich eingelesen:", results.data.length, "Zeilen");
-                const rows = results.data;
-                if (rows.length < 1) {
-                    resolve([]);
-                    return;
-                }
-
-                const rawHeaders = rows[0].map(h => String(h || "").trim());
-                const headers = rawHeaders.map(h => {
-                    const s = h.toLowerCase();
-                    if (s === 'vorname') return 'Vorname';
-                    if (s === 'name' || s === 'nachname') return 'Nachname';
-                    if (s.includes('stat') || s.includes('rolle')) return 'Status';
-                    if (s.includes('org') || s.includes('frak') || s.includes('part') || s.includes('typ')) return 'Typ';
-                    if (s.includes('stadt')) return 'Stadtrat';
-                    if (s.includes('kennung')) return 'Kennung';
-                    if (s.includes('bemerk')) return 'Bemerkung';
-                    return h;
-                });
-
-                let members = rows.slice(1).map(values => {
-                    const obj = { Vorname: "", Nachname: "", Status: "", Typ: "", Stadtrat: "", Kennung: "", Bemerkung: "" };
-                    headers.forEach((header, i) => { if (values[i] !== undefined) obj[header] = String(values[i] || "").trim(); });
-                    obj['DisplayName'] = `${obj['Vorname']} ${obj['Nachname']}`.trim() || "Unbekannt";
-                    return obj;
-                });
-
-                const getWeight = (s) => {
-                    s = (s || "").toLowerCase();
-                    const isStellv = s.includes('stellv');
-                    const isVoting = s.includes('stimmbereit') || s.includes('stimmberecht') || s.includes('beschließend');
-                    const isConsulting = s.includes('beratend');
-                    if (isVoting && !isStellv) return 1;
-                    if (isConsulting && !isStellv) return 2;
-                    if (isStellv) return 3;
-                    return 4;
-                };
-
-                members.sort((a, b) => {
-                    const wA = getWeight(a.Status); const wB = getWeight(b.Status);
-                    if (wA !== wB) return wA - wB;
-                    return (a.Typ || "").localeCompare(b.Typ || "") || (a.DisplayName || "").localeCompare(b.DisplayName || "");
-                });
-
-                resolve(members);
-            },
-            error: function (err) {
-                console.error("PapaParse Fehler:", err);
-                reject(err);
-            }
-        });
+    if (typeof Papa === 'undefined') throw new Error("PapaParse Bibliothek nicht geladen!");
+    const text = decodeText(await file.arrayBuffer());
+    const results = Papa.parse(text, {
+        header: false,
+        skipEmptyLines: 'greedy',
+        delimiter: "" // automatisch: Semikolon, Komma oder Tab
     });
+    return rowsToMembers(results.data);
 }
 
 async function readXlsx(file) {
-    console.log("Starte Excel-Einlesen...");
-    return new Promise((resolve, reject) => {
-        if (typeof XLSX === 'undefined') {
-            reject(new Error("SheetJS (xlsx) Bibliothek nicht geladen!"));
-            return;
-        }
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            try {
-                const data = new Uint8Array(e.target.result);
-                const workbook = XLSX.read(data, { type: 'array' });
-                // Finde das Blatt für die Mitgliederliste (JHA oder erstes Blatt)
-                let membersSheetName = workbook.SheetNames.find(n => n.toLowerCase() === 'jha') || workbook.SheetNames[0];
-                const worksheet = workbook.Sheets[membersSheetName];
-                
-                // Konvertiere Worksheet zu JSON-Array (Header-basiert)
-                const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
-                
-                if (rows.length < 1) {
-                    resolve([]);
-                    return;
-                }
+    if (typeof XLSX === 'undefined') throw new Error("SheetJS (xlsx) Bibliothek nicht geladen!");
+    const workbook = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
+    // Blatt für die Mitgliederliste (JHA oder erstes Blatt)
+    const membersSheetName = workbook.SheetNames.find(n => n.toLowerCase() === 'jha') || workbook.SheetNames[0];
+    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[membersSheetName], { header: 1, defval: "" });
 
-                // Verteilung einlesen falls vorhanden
-                let distSheetName = workbook.SheetNames.find(n => n.toLowerCase() === 'verteilung');
-                if (distSheetName) {
-                    const distWorksheet = workbook.Sheets[distSheetName];
-                    const distRows = XLSX.utils.sheet_to_json(distWorksheet, { header: 1, defval: "" });
-                    if (distRows.length > 1) {
-                        const rawDistHeaders = distRows[0].map(h => String(h || "").trim());
-                        const orgIdx = rawDistHeaders.findIndex(h => h.toLowerCase().includes('org'));
-                        const countIdx = rawDistHeaders.findIndex(h => h.toLowerCase().includes('wieviel') || h.toLowerCase().includes('anzahl'));
-                        const roleIdx = rawDistHeaders.findIndex(h => h.toLowerCase().includes('was') || h.toLowerCase().includes('rolle') || h.toLowerCase().includes('status'));
-                        
-                        if (orgIdx !== -1 && countIdx !== -1) {
-                            session.distribution = distRows.slice(1).map(row => ({
-                                Organisation: String(row[orgIdx] || "").trim(),
-                                wieviel: parseInt(row[countIdx]) || 0,
-                                was: roleIdx !== -1 ? String(row[roleIdx] || "").trim() : ""
-                            })).filter(d => d.Organisation && d.wieviel > 0);
-                            console.log("Verteilungsdaten eingelesen:", session.distribution.length, "Einträge");
-                        }
-                    }
-                } else {
-                    session.distribution = [];
-                }
-
-                // Header normalisieren
-                const rawHeaders = rows[0].map(h => String(h || "").trim());
-                const headers = rawHeaders.map(h => {
-                    const s = h.toLowerCase();
-                    if (s === 'vorname') return 'Vorname';
-                    if (s === 'name' || s === 'nachname') return 'Nachname';
-                    if (s.includes('stat') || s.includes('rolle')) return 'Status';
-                    if (s.includes('org') || s.includes('frak') || s.includes('part') || s.includes('typ')) return 'Typ';
-                    if (s.includes('stadt')) return 'Stadtrat';
-                    if (s.includes('kennung')) return 'Kennung';
-                    if (s.includes('bemerk')) return 'Bemerkung';
-                    return h;
-                });
-
-                let members = rows.slice(1).map(values => {
-                    const obj = { Vorname: "", Nachname: "", Status: "", Typ: "", Stadtrat: "", Kennung: "", Bemerkung: "" };
-                    headers.forEach((header, i) => { if (values[i] !== undefined) obj[header] = String(values[i] || "").trim(); });
-                    obj['DisplayName'] = `${obj['Vorname']} ${obj['Nachname']}`.trim() || "Unbekannt";
-                    return obj;
-                });
-
-                // Leere Zeilen filtern
-                members = members.filter(m => m.Vorname || m.Nachname);
-
-                const getWeight = (s) => {
-                    s = (s || "").toLowerCase();
-                    const isStellv = s.includes('stellv');
-                    const isVoting = s.includes('stimmbereit') || s.includes('stimmberecht') || s.includes('beschließend');
-                    const isConsulting = s.includes('beratend');
-                    if (isVoting && !isStellv) return 1;
-                    if (isConsulting && !isStellv) return 2;
-                    if (isStellv) return 3;
-                    return 4;
-                };
-
-                members.sort((a, b) => {
-                    const wA = getWeight(a.Status); const wB = getWeight(b.Status);
-                    if (wA !== wB) return wA - wB;
-                    return (a.Typ || "").localeCompare(b.Typ || "") || (a.DisplayName || "").localeCompare(b.DisplayName || "");
-                });
-
-                console.log("Excel erfolgreich eingelesen:", members.length, "Mitglieder");
-                resolve(members);
-            } catch (err) {
-                console.error("Fehler beim Verarbeiten der Excel-Datei:", err);
-                reject(err);
+    // Soll-Verteilung einlesen, falls vorhanden
+    session.distribution = [];
+    const distSheetName = workbook.SheetNames.find(n => n.toLowerCase() === 'verteilung');
+    if (distSheetName) {
+        const distRows = XLSX.utils.sheet_to_json(workbook.Sheets[distSheetName], { header: 1, defval: "" });
+        if (distRows.length > 1) {
+            const rawDistHeaders = distRows[0].map(h => String(h || "").trim());
+            const orgIdx = rawDistHeaders.findIndex(h => h.toLowerCase().includes('org'));
+            const countIdx = rawDistHeaders.findIndex(h => h.toLowerCase().includes('wieviel') || h.toLowerCase().includes('anzahl'));
+            const roleIdx = rawDistHeaders.findIndex(h => h.toLowerCase().includes('was') || h.toLowerCase().includes('rolle') || h.toLowerCase().includes('status'));
+            if (orgIdx !== -1 && countIdx !== -1) {
+                session.distribution = distRows.slice(1).map(row => ({
+                    Organisation: String(row[orgIdx] || "").trim(),
+                    wieviel: parseInt(row[countIdx]) || 0,
+                    was: roleIdx !== -1 ? String(row[roleIdx] || "").trim() : ""
+                })).filter(d => d.Organisation && d.wieviel > 0);
             }
-        };
-        reader.onerror = function(err) {
-            reject(err);
-        };
-        reader.readAsArrayBuffer(file);
-    });
+        }
+    }
+    return rowsToMembers(rows);
 }
 
 
@@ -236,6 +180,7 @@ async function initializeSession() {
                 session.members = await readXlsx(mFile);
             } else {
                 session.members = await readCsv(mFile);
+                session.distribution = []; // eine CSV kennt kein Blatt "Verteilung"
             }
         }
 
@@ -506,8 +451,8 @@ function renderAttendance() {
         }
         
         html += `<tr class="member-row transition hover:bg-slate-50 text-slate-800 font-medium">
-            <td class="p-3">${sr}${vsBadge}${m.DisplayName}${substitutionLabel}</td>
-            <td class="p-3 text-[10px] text-slate-500 font-bold uppercase tracking-tighter">${m.Typ || '-'}</td>
+            <td class="p-3">${sr}${vsBadge}${esc(m.DisplayName)}${substitutionLabel}</td>
+            <td class="p-3 text-[10px] text-slate-500 font-bold uppercase tracking-tighter">${esc(m.Typ || '-')}</td>
             <td class="p-3 text-center"><input type="checkbox" ${isPresent ? 'checked' : ''} onchange="toggleMember(${idx})" class="w-5 h-5 cursor-pointer accent-blue-600 rounded"></td>
         </tr>`;
     });
@@ -541,7 +486,7 @@ function addGlobalGuest() {
 function renderGuests() {
     const c = document.getElementById('global-guest-list');
     if (session.globalGuests.length === 0) { c.innerHTML = '<p class="text-slate-400 text-[10px] italic">Keine Gäste erfasst.</p>'; return; }
-    c.innerHTML = session.globalGuests.map((g, i) => `<div class="flex justify-between items-center p-2 bg-slate-50 border border-slate-100 rounded-lg text-xs mb-1 transition hover:bg-slate-100 font-medium text-slate-700"><div>${g.Name} <span class="text-slate-400 text-[9px] uppercase font-bold ml-1">(${g.Org || '-'})</span></div><button onclick="session.globalGuests.splice(${i},1); renderGuests();" class="text-red-400 hover:text-red-600 px-1 transition">×</button></div>`).join('');
+    c.innerHTML = session.globalGuests.map((g, i) => `<div class="flex justify-between items-center p-2 bg-slate-50 border border-slate-100 rounded-lg text-xs mb-1 transition hover:bg-slate-100 font-medium text-slate-700"><div>${esc(g.Name)} <span class="text-slate-400 text-[9px] uppercase font-bold ml-1">(${esc(g.Org || '-')})</span></div><button onclick="session.globalGuests.splice(${i},1); renderGuests();" class="text-red-400 hover:text-red-600 px-1 transition">×</button></div>`).join('');
 }
 
 function updateQuorum(p, t) {
@@ -578,8 +523,8 @@ function saveCurrentTopState() {
 function renderSidebar() {
     document.getElementById('agenda-sidebar').innerHTML = session.agenda.map((item, index) => `
         <div onclick="switchTop(${index})" class="sidebar-item cursor-pointer p-4 border-b text-xs transition ${session.viewMode === 'top' && session.currentTopIndex === index ? 'sidebar-active shadow-inner' : ''}">
-            <div class="font-bold text-slate-800 mb-1 text-[9px] uppercase tracking-tighter text-blue-900 top-nr">TOP ${item.nr}</div>
-            <div class="text-slate-600 font-medium line-clamp-2 leading-tight">${item.titel}</div>
+            <div class="font-bold text-slate-800 mb-1 text-[9px] uppercase tracking-tighter text-blue-900 top-nr">TOP ${esc(item.nr)}</div>
+            <div class="text-slate-600 font-medium line-clamp-2 leading-tight">${esc(item.titel)}</div>
         </div>
     `).join('');
     const genItem = document.getElementById('sidebar-general-notes');
@@ -619,7 +564,7 @@ function prepareAndPrint() {
                     else statusText = `anwesend während TOPs ${presentIn.map(i => session.agenda[i].nr).join(', ')}`;
                 }
                 const srText = member.Stadtrat?.toLowerCase() === 'ja' ? '(SR)' : '';
-                attHtml += `<div class="flex py-1 px-2 text-[11px] text-slate-900"><div class="w-1/2 font-bold">${member.DisplayName} <span class="text-[9px] text-slate-400 font-normal">| ${member.Typ} ${srText}</span></div><div class="w-1/2 text-slate-500 text-right italic font-medium">${statusText}</div></div>`;
+                attHtml += `<div class="flex py-1 px-2 text-[11px] text-slate-900"><div class="w-1/2 font-bold">${esc(member.DisplayName)} <span class="text-[9px] text-slate-400 font-normal">| ${esc(member.Typ)} ${srText}</span></div><div class="w-1/2 text-slate-500 text-right italic font-medium">${statusText}</div></div>`;
             });
             attContainer.innerHTML = `<div class="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden shadow-sm">${attHtml}</div>`;
         }
@@ -629,7 +574,7 @@ function prepareAndPrint() {
         if (gSection && gContent) {
             if (session.globalGuests && session.globalGuests.length > 0) {
                 gSection.classList.remove('hidden');
-                gContent.innerHTML = session.globalGuests.map(g => `${g.Name} (${g.Org || 'Gast'})`).join(', ');
+                gContent.innerHTML = session.globalGuests.map(g => `${esc(g.Name)} (${esc(g.Org || 'Gast')})`).join(', ');
             } else gSection.classList.add('hidden');
         }
 
@@ -650,7 +595,7 @@ function prepareAndPrint() {
                 const notes = (data.notes || "").trim();
                 const v = data.vote || { yes: 0, no: 0, text: "" };
                 const hasV = (v.yes > 0 || v.no > 0 || v.text.length > 0);
-                protHtml += `<div class="print-top-block"><div class="flex items-baseline gap-3 mb-4"><span class="bg-slate-900 text-white font-black text-[9px] px-2 py-0.5 rounded tracking-widest">TOP ${item.nr}</span><h4 class="text-base font-bold text-slate-900 uppercase tracking-tight">${item.titel}</h4></div>${notes ? `<div class="mb-6 pl-4 border-l-2 border-slate-200 text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">${notes}</div>` : '<p class="text-[11px] italic text-slate-400 pl-4 mb-6">Keine inhaltlichen Aufzeichnungen vorhanden.</p>'}${hasV ? `<div class="bg-slate-50 p-4 rounded-xl border border-slate-100 flex justify-between items-center"><div class="flex gap-6 text-[10px] font-bold"><span class="text-green-700">Dafür: ${v.yes}</span><span class="text-red-700">Dagegen: ${v.no}</span></div><div class="text-[10px] font-black uppercase text-slate-500 italic">${v.text || 'Beschluss gefasst'}</div></div>` : ''}</div>`;
+                protHtml += `<div class="print-top-block"><div class="flex items-baseline gap-3 mb-4"><span class="bg-slate-900 text-white font-black text-[9px] px-2 py-0.5 rounded tracking-widest">TOP ${esc(item.nr)}</span><h4 class="text-base font-bold text-slate-900 uppercase tracking-tight">${esc(item.titel)}</h4></div>${notes ? `<div class="mb-6 pl-4 border-l-2 border-slate-200 text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">${esc(notes)}</div>` : '<p class="text-[11px] italic text-slate-400 pl-4 mb-6">Keine inhaltlichen Aufzeichnungen vorhanden.</p>'}${hasV ? `<div class="bg-slate-50 p-4 rounded-xl border border-slate-100 flex justify-between items-center"><div class="flex gap-6 text-[10px] font-bold"><span class="text-green-700">Dafür: ${v.yes}</span><span class="text-red-700">Dagegen: ${v.no}</span></div><div class="text-[10px] font-black uppercase text-slate-500 italic">${esc(v.text || 'Beschluss gefasst')}</div></div>` : ''}</div>`;
             });
             protContainer.innerHTML = protHtml;
         }
@@ -808,8 +753,8 @@ function checkSeatDistribution() {
 
         htmlRows.push(`
             <tr class="border-b hover:bg-slate-50 font-medium">
-                <td class="p-3 font-bold">${d.Organisation}</td>
-                <td class="p-3 text-slate-500">${d.was || "-"}</td>
+                <td class="p-3 font-bold">${esc(d.Organisation)}</td>
+                <td class="p-3 text-slate-500">${esc(d.was || "-")}</td>
                 <td class="p-3 text-center font-bold">${d.wieviel}</td>
                 <td class="p-3 text-center ${istOrd < sollOrd && istEffektiv < sollOrd ? 'text-amber-600 font-bold' : ''}">${isAnwesendText}</td>
                 <td class="p-3 text-center">${stellvText}</td>
