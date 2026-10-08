@@ -183,6 +183,11 @@
             transform: scale(0.96) !important;
         }
 
+        /* Setup: Mit align-items:center ragt zu hoher Inhalt über den oberen Rand hinaus und
+           lässt sich nicht mehr erreichen. Auto-Ränder zentrieren nur, solange Platz ist. */
+        #setup-view { align-items: flex-start !important; }
+        #setup-view > .card { margin-top: auto; margin-bottom: auto; }
+
         /* Mitgliedersuche in der Anwesenheitsliste */
         .member-search { position: relative; margin-bottom: 0.75rem; }
         #member-search-input { width: 100%; border: 2px solid #e2e8f0; border-radius: 0.75rem; padding: 0.55rem 0.9rem; font-size: 0.85rem; background: #fff; color: #0f172a; outline: none; }
