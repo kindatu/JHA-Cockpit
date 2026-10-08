@@ -662,7 +662,7 @@ function renderAttendance() {
             substitutionLabel = ` <span class="text-slate-400 text-[9px] italic ml-1">(Stellvertretung)</span>`;
         }
         
-        html += `<tr class="member-row transition hover:bg-slate-50 text-slate-800 font-medium">
+        html += `<tr id="member-row-${idx}" class="member-row transition hover:bg-slate-50 text-slate-800 font-medium">
             <td class="p-3">${sr}${vsBadge}${esc(m.DisplayName)}${substitutionLabel}</td>
             <td class="p-3 text-[10px] text-slate-500 font-bold uppercase tracking-tighter">${esc(m.Typ || '-')}</td>
             <td class="p-3 text-[11px] text-slate-600 font-medium">${esc(roleLabel(m.Status) || m.Status || '-')}</td>
@@ -1037,6 +1037,80 @@ function importFullSession(event) {
         }
     };
     reader.readAsText(file);
+}
+
+// --- MITGLIEDERSUCHE ---
+// Suche über Name und Organisation, unabhängig von Umlauten und Groß-/Kleinschreibung
+let searchHits = [];
+let searchActive = -1;
+
+// Zwei Schreibweisen für Umlaute: ü -> ue (üblich) und ü -> u (Tippfaulheit); beide werden akzeptiert
+function foldUe(v) { return normText(v).replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue"); }
+function foldText(v) {
+    return normText(v).replace(/ä/g, "a").replace(/ö/g, "o").replace(/ü/g, "u");
+}
+
+function findMembers(query) {
+    const words = String(query || "").toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    return session.members
+        .map((m, idx) => ({ m, idx, text: m.DisplayName + " " + m.Typ }))
+        .map(x => ({ ...x, h1: foldText(x.text), h2: foldUe(x.text) }))
+        .filter(x => words.every(w => x.h1.includes(foldText(w)) || x.h2.includes(foldUe(w))))
+        .sort((a, b) => compareStandard(a.m, b.m));
+}
+
+function hideSearchResults() {
+    const box = document.getElementById('member-search-results');
+    if (box) box.classList.add('hidden');
+    searchActive = -1;
+}
+
+function renderSearchResults() {
+    const input = document.getElementById('member-search-input');
+    const box = document.getElementById('member-search-results');
+    if (!input || !box) return;
+    const q = input.value.trim();
+    if (!q) { hideSearchResults(); searchHits = []; return; }
+    searchHits = findMembers(q);
+    searchActive = searchHits.length ? 0 : -1;
+    const shown = searchHits.slice(0, 8);
+    box.innerHTML = shown.length
+        ? shown.map((h, i) => `<div role="option" class="member-hit ${i === searchActive ? 'active' : ''}" onmousedown="jumpToMember(${h.idx})">
+                <span class="member-hit-name">${esc(h.m.DisplayName)}</span>
+                <span class="member-hit-sub">${esc(h.m.Typ || '–')} · ${esc(roleLabel(h.m.Status) || h.m.Status || '–')}</span></div>`).join('')
+            + (searchHits.length > shown.length ? `<div class="member-hit-more">… und ${searchHits.length - shown.length} weitere – Suche verfeinern</div>` : '')
+        : `<div class="member-hit-more">Kein Mitglied gefunden.</div>`;
+    box.classList.remove('hidden');
+}
+
+function onSearchKey(e) {
+    const shown = Math.min(searchHits.length, 8);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        if (!shown) return;
+        e.preventDefault();
+        searchActive = (searchActive + (e.key === 'ArrowDown' ? 1 : -1) + shown) % shown;
+        document.querySelectorAll('#member-search-results .member-hit').forEach((el, i) => el.classList.toggle('active', i === searchActive));
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (searchActive >= 0 && searchHits[searchActive]) jumpToMember(searchHits[searchActive].idx);
+    } else if (e.key === 'Escape') {
+        e.target.value = "";
+        hideSearchResults();
+    }
+}
+
+// Springt zur Zeile des Mitglieds: klappt die Liste bei Bedarf auf, scrollt hin und hebt die Zeile kurz hervor
+function jumpToMember(idx) {
+    if (session.viewMode !== 'top') switchTop(session.currentTopIndex || 0);
+    if (!isAttendanceUIVisible) { isAttendanceUIVisible = true; updateAttendanceVisibility(); }
+    const row = document.getElementById('member-row-' + idx);
+    hideSearchResults();
+    if (!row) return;
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.classList.remove('member-flash');
+    void row.offsetWidth; // Animation neu starten
+    row.classList.add('member-flash');
 }
 
 // --- INTIALIZATION ---

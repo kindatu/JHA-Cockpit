@@ -183,6 +183,20 @@
             transform: scale(0.96) !important;
         }
 
+        /* Mitgliedersuche in der Anwesenheitsliste */
+        .member-search { position: relative; margin-bottom: 0.75rem; }
+        #member-search-input { width: 100%; border: 2px solid #e2e8f0; border-radius: 0.75rem; padding: 0.55rem 0.9rem; font-size: 0.85rem; background: #fff; color: #0f172a; outline: none; }
+        #member-search-input:focus { border-color: #60a5fa; }
+        #member-search-results { position: absolute; left: 0; right: 0; top: 100%; margin-top: 0.25rem; z-index: 30; background: #fff; border: 2px solid #e2e8f0; border-radius: 0.75rem; box-shadow: 0 10px 25px -5px rgb(0 0 0 / 0.15); overflow: hidden; }
+        #member-search-results.hidden { display: none; }
+        .member-hit { display: flex; justify-content: space-between; gap: 1rem; padding: 0.5rem 0.9rem; cursor: pointer; font-size: 0.85rem; }
+        .member-hit.active, .member-hit:hover { background: #dbeafe; }
+        .member-hit-name { font-weight: 700; color: #0f172a; }
+        .member-hit-sub { color: #64748b; font-size: 0.7rem; text-align: right; }
+        .member-hit-more { padding: 0.5rem 0.9rem; color: #64748b; font-size: 0.75rem; font-style: italic; }
+        @keyframes memberFlash { 0%, 60% { background-color: #fde68a; } 100% { background-color: transparent; } }
+        .member-flash td { animation: memberFlash 2.2s ease-out; }
+
         /* Prüfbereich Mitgliederliste (Import) */
         #import-review { margin-top: 2rem; padding: 1.25rem; border: 2px solid #e2e8f0; border-radius: 1rem; background: #f8fafc; font-size: 0.8rem; }
         .imp-title { font-family: 'Ubuntu', sans-serif; font-weight: 700; font-size: 0.95rem; margin-bottom: 1rem; color: #0f172a; }
@@ -376,6 +390,12 @@
                                     <button id="toggle-attendance-btn" onclick="toggleAttendanceUI()"
                                         class="text-[10px] font-bold uppercase text-blue-600 border border-blue-200 px-3 py-1 rounded-lg bg-white transition shadow-sm hover:bg-blue-50">Einklappen</button>
                                 </div>
+                            </div>
+                            <div class="member-search">
+                                <input type="search" id="member-search-input" autocomplete="off" placeholder="Mitglied suchen (Name oder Organisation) und mit Enter dorthin springen …"
+                                    oninput="renderSearchResults()" onkeydown="onSearchKey(event)" onfocus="renderSearchResults()" onblur="setTimeout(hideSearchResults, 150)"
+                                    aria-label="Mitglied suchen" aria-controls="member-search-results">
+                                <div id="member-search-results" class="hidden" role="listbox"></div>
                             </div>
                             <div id="attendance-table-container"
                                 class="border-2 border-slate-100 rounded-xl bg-white shadow-sm overflow-hidden">
