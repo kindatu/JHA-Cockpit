@@ -368,6 +368,7 @@
                                         <option value="default">Standard</option>
                                         <option value="name">Name</option>
                                         <option value="org">Organisation</option>
+                                        <option value="present">Anwesenheit</option>
                                     </select>
                                     <button id="toggle-attendance-btn" onclick="toggleAttendanceUI()"
                                         class="text-[10px] font-bold uppercase text-blue-600 border border-blue-200 px-3 py-1 rounded-lg bg-white transition shadow-sm hover:bg-blue-50">Einklappen</button>
@@ -379,9 +380,9 @@
                                     <thead
                                         class="bg-slate-50 text-slate-500 uppercase text-[9px] font-black tracking-widest sticky top-0 z-10">
                                         <tr>
-                                            <th class="p-3 text-left border-b">Name</th>
-                                            <th class="p-3 text-left border-b">Organisation</th>
-                                            <th class="p-3 text-center border-b">Dabei?</th>
+                                            <th id="th-sort-name" onclick="sortByColumn('name')" title="Nach Name sortieren" aria-sort="none" class="p-3 text-left border-b cursor-pointer select-none hover:text-slate-900">Name</th>
+                                            <th id="th-sort-org" onclick="sortByColumn('org')" title="Nach Organisation sortieren" aria-sort="none" class="p-3 text-left border-b cursor-pointer select-none hover:text-slate-900">Organisation</th>
+                                            <th id="th-sort-present" onclick="sortByColumn('present')" title="Nach Anwesenheit sortieren" aria-sort="none" class="p-3 text-center border-b cursor-pointer select-none hover:text-slate-900">Dabei?</th>
                                         </tr>
                                     </thead>
                                     <tbody id="attendance-list"></tbody>

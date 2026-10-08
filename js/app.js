@@ -13,6 +13,7 @@ let session = {
 
 let isAttendanceUIVisible = true;
 let currentSortMode = "default";
+let currentSortDir = 1; // 1 = aufsteigend, -1 = absteigend
 
 // --- PERSISTENCE ---
 // Speicherung erfolgt ausschließlich über JSON-Export/-Import ("Speichern"/"Laden").
@@ -483,7 +484,29 @@ function updateAttendanceVisibility() {
 
 function changeSortMode(mode) {
     currentSortMode = mode;
+    currentSortDir = 1;
+    const sel = document.getElementById('sort-members-select');
+    if (sel) sel.value = mode;
     renderAttendance();
+}
+
+// Klick auf eine Spaltenüberschrift: erster Klick aufsteigend, weiterer Klick kehrt um
+function sortByColumn(mode) {
+    if (currentSortMode === mode) currentSortDir = -currentSortDir;
+    else { currentSortMode = mode; currentSortDir = 1; }
+    const sel = document.getElementById('sort-members-select');
+    if (sel) sel.value = mode;
+    renderAttendance();
+}
+
+function updateSortIndicators() {
+    [['name', 'Name'], ['org', 'Organisation'], ['present', 'Dabei?']].forEach(([mode, label]) => {
+        const th = document.getElementById('th-sort-' + mode);
+        if (!th) return;
+        const active = currentSortMode === mode;
+        th.textContent = label + (active ? (currentSortDir === 1 ? ' ▲' : ' ▼') : '');
+        th.setAttribute('aria-sort', active ? (currentSortDir === 1 ? 'ascending' : 'descending') : 'none');
+    });
 }
 
 function normalizeOrg(name) {
@@ -556,16 +579,14 @@ function renderAttendance() {
     
     // Sortierung anwenden
     const sortedStatuses = [...memberStatuses];
+    const cmp = (x, y) => (x || "").localeCompare(y || "", 'de');
     if (currentSortMode === 'name') {
-        sortedStatuses.sort((a, b) => {
-            return (a.member.Nachname || "").localeCompare(b.member.Nachname || "") || 
-                   (a.member.Vorname || "").localeCompare(b.member.Vorname || "");
-        });
+        sortedStatuses.sort((a, b) => currentSortDir * (cmp(a.member.Nachname, b.member.Nachname) || cmp(a.member.Vorname, b.member.Vorname)));
     } else if (currentSortMode === 'org') {
-        sortedStatuses.sort((a, b) => {
-            return (a.member.Typ || "").localeCompare(b.member.Typ || "") || 
-                   (a.member.Nachname || "").localeCompare(b.member.Nachname || "");
-        });
+        sortedStatuses.sort((a, b) => currentSortDir * cmp(a.member.Typ, b.member.Typ) || cmp(a.member.Nachname, b.member.Nachname));
+    } else if (currentSortMode === 'present') {
+        // aufsteigend: Anwesende zuerst; innerhalb gleicher Gruppe nach Nachname
+        sortedStatuses.sort((a, b) => currentSortDir * (Number(b.isPresent) - Number(a.isPresent)) || cmp(a.member.Nachname, b.member.Nachname));
     } else {
         // Standard (Rolle)
         sortedStatuses.sort((a, b) => {
@@ -632,6 +653,7 @@ function renderAttendance() {
     });
     
     container.innerHTML = html;
+    updateSortIndicators();
     updateQuorum(presentCount, totalVoting);
 }
 
