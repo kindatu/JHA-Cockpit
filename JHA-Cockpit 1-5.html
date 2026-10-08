@@ -369,6 +369,7 @@
                                         <option value="name">Name</option>
                                         <option value="org">Organisation</option>
                                         <option value="present">Anwesenheit</option>
+                                        <option value="status">Status</option>
                                     </select>
                                     <button id="toggle-attendance-btn" onclick="toggleAttendanceUI()"
                                         class="text-[10px] font-bold uppercase text-blue-600 border border-blue-200 px-3 py-1 rounded-lg bg-white transition shadow-sm hover:bg-blue-50">Einklappen</button>
@@ -382,6 +383,7 @@
                                         <tr>
                                             <th id="th-sort-name" onclick="sortByColumn('name')" title="Nach Name sortieren" aria-sort="none" class="p-3 text-left border-b cursor-pointer select-none hover:text-slate-900">Name</th>
                                             <th id="th-sort-org" onclick="sortByColumn('org')" title="Nach Organisation sortieren" aria-sort="none" class="p-3 text-left border-b cursor-pointer select-none hover:text-slate-900">Organisation</th>
+                                            <th id="th-sort-status" onclick="sortByColumn('status')" title="Nach Status sortieren" aria-sort="none" class="p-3 text-left border-b cursor-pointer select-none hover:text-slate-900">Status</th>
                                             <th id="th-sort-present" onclick="sortByColumn('present')" title="Nach Anwesenheit sortieren" aria-sort="none" class="p-3 text-center border-b cursor-pointer select-none hover:text-slate-900">Dabei?</th>
                                         </tr>
                                     </thead>

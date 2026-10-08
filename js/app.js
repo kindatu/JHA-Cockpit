@@ -500,7 +500,7 @@ function sortByColumn(mode) {
 }
 
 function updateSortIndicators() {
-    [['name', 'Name'], ['org', 'Organisation'], ['present', 'Dabei?']].forEach(([mode, label]) => {
+    [['name', 'Name'], ['org', 'Organisation'], ['status', 'Status'], ['present', 'Dabei?']].forEach(([mode, label]) => {
         const th = document.getElementById('th-sort-' + mode);
         if (!th) return;
         const active = currentSortMode === mode;
@@ -584,6 +584,9 @@ function renderAttendance() {
         sortedStatuses.sort((a, b) => currentSortDir * (cmp(a.member.Nachname, b.member.Nachname) || cmp(a.member.Vorname, b.member.Vorname)));
     } else if (currentSortMode === 'org') {
         sortedStatuses.sort((a, b) => currentSortDir * cmp(a.member.Typ, b.member.Typ) || cmp(a.member.Nachname, b.member.Nachname));
+    } else if (currentSortMode === 'status') {
+        // Reihenfolge der Rollen wie im Standard (Stimmberechtigt, Beratend, Stellvertretung, Sonstige)
+        sortedStatuses.sort((a, b) => currentSortDir * (getWeight(a.member.Status) - getWeight(b.member.Status)) || cmp(a.member.Typ, b.member.Typ) || cmp(a.member.Nachname, b.member.Nachname));
     } else if (currentSortMode === 'present') {
         // aufsteigend: Anwesende zuerst; innerhalb gleicher Gruppe nach Nachname
         sortedStatuses.sort((a, b) => currentSortDir * (Number(b.isPresent) - Number(a.isPresent)) || cmp(a.member.Nachname, b.member.Nachname));
@@ -608,7 +611,7 @@ function renderAttendance() {
         const group = ms.group;
         
         if (currentSortMode === 'default' && group !== lastGroup) {
-            html += `<tr><td colspan="3" class="group-header">${group}</td></tr>`;
+            html += `<tr><td colspan="4" class="group-header">${group}</td></tr>`;
             lastGroup = group;
         }
         
@@ -648,6 +651,7 @@ function renderAttendance() {
         html += `<tr class="member-row transition hover:bg-slate-50 text-slate-800 font-medium">
             <td class="p-3">${sr}${vsBadge}${esc(m.DisplayName)}${substitutionLabel}</td>
             <td class="p-3 text-[10px] text-slate-500 font-bold uppercase tracking-tighter">${esc(m.Typ || '-')}</td>
+            <td class="p-3 text-[11px] text-slate-600 font-medium">${esc(roleLabel(m.Status) || m.Status || '-')}</td>
             <td class="p-3 text-center"><input type="checkbox" ${isPresent ? 'checked' : ''} onchange="toggleMember(${idx})" class="w-5 h-5 cursor-pointer accent-blue-600 rounded"></td>
         </tr>`;
     });
