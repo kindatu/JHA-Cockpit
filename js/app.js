@@ -430,6 +430,7 @@ function startWorkspace() {
     if (mainWorkspace) mainWorkspace.classList.remove('hidden');
     if (backBtn) backBtn.classList.remove('hidden');
     if (editBtn) editBtn.classList.remove('hidden');
+    const attBtn = document.getElementById('btn-print-attendance'); if (attBtn) attBtn.classList.remove('hidden');
 
     document.getElementById('session-title').innerText = `${session.title} - ${session.date}`;
     
@@ -536,8 +537,8 @@ function normalizeOrg(name) {
     return s;
 }
 
-function getActiveTopAttendanceAnalysis() {
-    const data = session.topData[session.currentTopIndex];
+function getActiveTopAttendanceAnalysis(topIdx) {
+    const data = session.topData[topIdx === undefined ? session.currentTopIndex : topIdx];
     if (!data) return { memberStatuses: [], activeSubstitutes: {} };
 
     // Gruppen zuordnen
@@ -833,6 +834,7 @@ function openSetupView() {
     if (mainWorkspace) mainWorkspace.classList.add('hidden');
     if (backBtn) backBtn.classList.add('hidden');
     if (editBtn) editBtn.classList.add('hidden');
+    const attBtn = document.getElementById('btn-print-attendance'); if (attBtn) attBtn.classList.add('hidden');
 
     // Aktuelle Tagesordnung ins Textfeld laden
     const aTextElem = document.getElementById('agendaText');
@@ -1037,6 +1039,109 @@ function importFullSession(event) {
         }
     };
     reader.readAsText(file);
+}
+
+// --- ANWESENHEITSLISTE DRUCKEN ---
+// Beschlussfähigkeit eines TOPs (gleiche Regel wie in renderAttendance): Mehr als die Hälfte der
+// stimmberechtigten Mitglieder, wobei nachrückende Stellvertretungen für Abwesende mitzählen.
+function quorumFor(topIdx) {
+    const { memberStatuses, activeSubstitutes } = getActiveTopAttendanceAnalysis(topIdx);
+    let p = 0, t = 0;
+    memberStatuses.forEach(ms => {
+        if (ms.group === "Stimmberechtigte Mitglieder") { t++; if (ms.isPresent) p++; }
+        else if (activeSubstitutes[ms.index]) p++;
+    });
+    return { p, t, ok: t > 0 && p > t / 2, subs: activeSubstitutes, statuses: memberStatuses };
+}
+
+function printAttendanceList() {
+    try {
+        saveCurrentTopState();
+        const total = session.agenda.length;
+        const area = document.getElementById('print-attendance-area');
+        if (!area || total === 0 || session.members.length === 0) { alert("Es gibt noch keine Sitzung mit Mitgliedern."); return; }
+
+        const q = session.agenda.map((_, i) => session.topData[i] ? quorumFor(i) : null);
+        const att = i => new Set(session.topData[i] ? session.topData[i].attendance : []);
+        const nameOrg = idx => { const m = session.members[idx]; return `${esc(m.DisplayName)}${m.Typ ? ' (' + esc(m.Typ) + ')' : ''}`; };
+
+        // --- Matrix: Mitglieder x TOPs, in der Standardsortierung mit Gruppenüberschriften ---
+        const order = session.members.map((m, idx) => ({ m, idx })).sort((a, b) => compareStandard(a.m, b.m));
+        const topHead = session.agenda.map(it => `<th class="mk">${esc(it.nr)}</th>`).join('');
+        let rows = "", lastGroup = "";
+        order.forEach(({ m, idx }) => {
+            const g = WEIGHT_LABELS[getWeight(m.Status)];
+            if (g !== lastGroup) { rows += `<tr class="att-group"><td colspan="${3 + total}">${esc(g)}</td></tr>`; lastGroup = g; }
+            let cells = "";
+            for (let i = 0; i < total; i++) {
+                const here = att(i).has(idx);
+                const before = i > 0 ? att(i - 1).has(idx) : here;
+                const sub = q[i] && q[i].subs[idx];
+                cells += `<td class="mk ${here !== before ? 'chg' : ''}">${here ? (sub ? '●*' : '●') : ''}</td>`;
+            }
+            const sr = (m.Stadtrat || '').toLowerCase() === 'ja' ? ' <small>(SR)</small>' : '';
+            rows += `<tr><td>${esc(m.DisplayName)}${sr}</td><td>${esc(m.Typ || '–')}</td><td>${esc(roleLabel(m.Status) || m.Status || '–')}</td>${cells}</tr>`;
+        });
+        const presRow = `<tr class="att-group"><td colspan="3">Präsenz (stimmberechtigt, inkl. Nachrückern)</td>${q.map(x => `<td class="mk">${x ? x.p + '/' + x.t : ''}</td>`).join('')}</tr>`;
+
+        // --- Änderungen je TOP ---
+        let changes = "";
+        session.agenda.forEach((item, i) => {
+            if (!q[i]) return;
+            const cur = att(i);
+            const head = `TOP ${esc(item.nr)}: ${esc(item.titel)}`;
+            const quorumTxt = `Präsenz ${q[i].p} von ${q[i].t} – ${q[i].ok ? 'beschlussfähig' : '<b>nicht beschlussfähig</b>'}`;
+            const items = [];
+            if (i === 0) {
+                items.push(`Beginn mit ${cur.size} anwesenden Mitgliedern.`);
+            } else {
+                const prev = att(i - 1);
+                const kommt = [...cur].filter(x => !prev.has(x)).map(nameOrg);
+                const geht = [...prev].filter(x => !cur.has(x)).map(nameOrg);
+                if (kommt.length) items.push(`Neu anwesend: ${kommt.join('; ')}`);
+                if (geht.length) items.push(`Nicht mehr anwesend: ${geht.join('; ')}`);
+                const subNow = Object.keys(q[i].subs).map(Number), subPrev = Object.keys(q[i - 1].subs).map(Number);
+                const subNew = subNow.filter(x => !subPrev.includes(x)).map(nameOrg);
+                const subEnd = subPrev.filter(x => !subNow.includes(x)).map(nameOrg);
+                if (subNew.length) items.push(`Stellvertretung stimmberechtigt nachgerückt: ${subNew.join('; ')}`);
+                if (subEnd.length) items.push(`Stellvertretung nicht mehr stimmberechtigt: ${subEnd.join('; ')}`);
+                if (q[i - 1].ok && !q[i].ok) items.push('<b>Beschlussfähigkeit verloren.</b>');
+                if (!q[i - 1].ok && q[i].ok) items.push('Beschlussfähigkeit hergestellt.');
+                if (!items.length) items.push(`Keine Änderung gegenüber TOP ${esc(session.agenda[i - 1].nr)}.`);
+            }
+            changes += `<div class="att-changes"><h4>${head} <span style="font-weight:400">· ${quorumTxt}</span></h4><ul>${items.map(t => `<li>${t}</li>`).join('')}</ul></div>`;
+        });
+
+        const guests = session.globalGuests && session.globalGuests.length
+            ? `<p style="margin-bottom:1rem"><b>Gäste:</b> ${session.globalGuests.map(g => `${esc(g.Name)} (${esc(g.Org || 'Gast')})`).join(', ')}</p>` : '';
+        const logo = document.getElementById('print-logo');
+
+        area.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #0f172a;padding-bottom:0.6rem;margin-bottom:1rem">
+                <div style="width:36px;height:36px">${logo ? logo.innerHTML : ''}</div>
+                <div style="text-align:right"><div style="font-family:Ubuntu,sans-serif;font-weight:900;font-size:20px;text-transform:uppercase">Anwesenheitsliste</div>
+                    <div style="color:#64748b;font-weight:700">${esc(session.title)} – ${esc(session.date)}</div></div>
+            </div>
+            <table class="att-table"><thead><tr><th>Name</th><th>Organisation</th><th>Status</th>${topHead}</tr></thead><tbody>${rows}${presRow}</tbody></table>
+            <p class="att-legend">● anwesend im jeweiligen TOP &nbsp; ●* anwesend und als Stellvertretung stimmberechtigt nachgerückt &nbsp; Umrandet = Änderung gegenüber dem vorherigen TOP</p>
+            ${guests}
+            <h3 style="font-family:Ubuntu,sans-serif;font-weight:900;text-transform:uppercase;font-size:12px;margin:0.8rem 0 0.4rem">Änderungen im Sitzungsverlauf</h3>
+            ${changes}
+            <div style="margin-top:1rem;border-top:1px solid #cbd5e1;padding-top:0.4rem;font-size:9px;color:#64748b;display:flex;justify-content:space-between"><span>Generiert mit JHA Cockpit</span><span>Erstellt am: ${esc(new Date().toLocaleString('de-DE'))}</span></div>`;
+
+        // Viele TOPs: Querformat
+        let pageStyle = document.getElementById('print-page-style');
+        if (!pageStyle) { pageStyle = document.createElement('style'); pageStyle.id = 'print-page-style'; document.head.appendChild(pageStyle); }
+        pageStyle.textContent = total > 8 ? '@page { size: A4 landscape; margin: 10mm; }' : '@page { size: A4 portrait; margin: 12mm; }';
+
+        document.body.classList.add('print-attendance');
+        window.addEventListener('afterprint', () => document.body.classList.remove('print-attendance'), { once: true });
+        window.print();
+    } catch (err) {
+        console.error("Fehler beim Drucken der Anwesenheitsliste:", err);
+        document.body.classList.remove('print-attendance');
+        alert("Druckfehler: " + err.message);
+    }
 }
 
 // --- MITGLIEDERSUCHE ---

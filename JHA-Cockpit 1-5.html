@@ -93,6 +93,31 @@
                 display: block !important;
             }
 
+            /* Ausdruck "Anwesenheitsliste": body.print-attendance schaltet um */
+            body.print-attendance #print-area {
+                display: none !important;
+            }
+
+            body.print-attendance #print-attendance-area {
+                display: block !important;
+                font-size: 11px;
+            }
+
+            body.print-attendance { overflow: visible !important; height: auto !important; }
+
+            .att-table { width: 100%; border-collapse: collapse; margin-bottom: 1.2rem; }
+            .att-table th, .att-table td { border: 1px solid #94a3b8; padding: 3px 5px; text-align: left; }
+            .att-table th { background: #e2e8f0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; font-size: 9px; text-transform: uppercase; }
+            .att-table td.mk, .att-table th.mk { text-align: center; width: 28px; padding: 3px 2px; }
+            .att-table tr { page-break-inside: avoid; }
+            .att-table tr.att-group td { background: #1e293b !important; color: #fff !important; font-weight: 700; font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .att-table td.chg { outline: 2px solid #000; outline-offset: -2px; font-weight: 700; }
+            .att-changes { margin-bottom: 1rem; page-break-inside: avoid; }
+            .att-changes h4 { font-family: 'Ubuntu', sans-serif; font-weight: 700; margin-bottom: 2px; }
+            .att-changes ul { margin: 0 0 0 1.1rem; padding: 0; list-style: disc; }
+            #print-attendance-area svg .cls-1 { fill: #000 !important; }
+            .att-legend { font-size: 9px; color: #475569; margin-bottom: 1rem; }
+
             body {
                 background-color: white;
                 overflow: visible !important;
@@ -133,7 +158,7 @@
             }
         }
 
-        #print-area {
+        #print-area, #print-attendance-area {
             display: none;
         }
 
@@ -267,6 +292,8 @@
                 </svg>
                 Drucken
             </button>
+            <button id="btn-print-attendance" onclick="printAttendanceList()" title="Anwesenheitsliste mit den Änderungen je TOP drucken"
+                class="hidden bg-slate-700 text-white hover:bg-slate-600 px-4 py-1.5 rounded text-sm transition font-bold shadow-lg btn-interactive">Anwesenheitsliste drucken</button>
             <div class="h-6 w-px bg-slate-700 mx-1"></div>
             <button onclick="exportFullSession()"
                 class="bg-blue-600 hover:bg-blue-700 px-4 py-1.5 rounded text-sm transition font-bold text-white shadow-lg btn-interactive">Speichern</button>
@@ -498,6 +525,8 @@
     </main>
 
     <!-- Final Print View -->
+    <div id="print-attendance-area" class="text-slate-900 bg-white"></div>
+
     <div id="print-area" class="p-12 text-slate-900 bg-white">
         <div class="flex justify-between items-start border-b-4 border-slate-900 pb-8 mb-10">
             <!-- Inline SVG Logo für den Ausdruck -->
