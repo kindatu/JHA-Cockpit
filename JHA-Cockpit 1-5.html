@@ -365,12 +365,14 @@
                                 <div class="flex items-center gap-2.5">
                                     <span class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Sortieren:</span>
                                     <select id="sort-members-select" onchange="changeSortMode(this.value)" class="text-[10px] font-bold uppercase text-slate-700 border border-slate-200 px-2 py-1 rounded-lg bg-white outline-none">
-                                        <option value="default">Standard</option>
+                                        <option value="default">Standard (Status, Name)</option>
                                         <option value="name">Name</option>
                                         <option value="org">Organisation</option>
                                         <option value="present">Anwesenheit</option>
                                         <option value="status">Status</option>
                                     </select>
+                                    <button id="reset-sort-btn" onclick="changeSortMode('default')" title="Zurück zur Standardsortierung: Status, dann alphabetisch nach Name"
+                                        class="text-[10px] font-bold uppercase text-slate-700 border border-slate-200 px-3 py-1 rounded-lg bg-white transition shadow-sm hover:bg-slate-50">Standardsortierung</button>
                                     <button id="toggle-attendance-btn" onclick="toggleAttendanceUI()"
                                         class="text-[10px] font-bold uppercase text-blue-600 border border-blue-200 px-3 py-1 rounded-lg bg-white transition shadow-sm hover:bg-blue-50">Einklappen</button>
                                 </div>

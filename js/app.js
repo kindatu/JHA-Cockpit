@@ -90,8 +90,26 @@ function getWeight(status) {
     const r = roleOf(status);
     if (r.isVoting && !r.isStellv) return 1;
     if (r.isConsulting && !r.isStellv) return 2;
-    if (r.isStellv) return 3;
-    return 4;
+    if (r.isVoting && r.isStellv) return 3;
+    if (r.isConsulting && r.isStellv) return 4;
+    return 5;
+}
+
+const WEIGHT_LABELS = {
+    1: "Stimmberechtigte Mitglieder",
+    2: "Beratende Mitglieder",
+    3: "Stellvertretung – stimmberechtigt",
+    4: "Stellvertretung – beratend",
+    5: "Sonstige"
+};
+
+// Standardsortierung: Ebene 1 Rolle (Reihenfolge s. getWeight), Ebene 2 alphabetisch nach Name
+function compareStandard(a, b) {
+    const w = getWeight(a.Status) - getWeight(b.Status);
+    if (w !== 0) return w;
+    return (a.Nachname || "").localeCompare(b.Nachname || "", 'de') ||
+           (a.Vorname || "").localeCompare(b.Vorname || "", 'de') ||
+           (a.DisplayName || "").localeCompare(b.DisplayName || "", 'de');
 }
 
 // Platzhalter-Namen aus der Quellliste ("nn", "N.N.", "-") gelten als unbesetzt
@@ -198,11 +216,7 @@ function buildMembers(state) {
     const verwaist = members.filter(m => { const r = roleOf(m.Status); return r.isVoting && r.isStellv && !ordOrgs.has(normText(m.Typ)); });
     if (verwaist.length) warnings.push({ level: 'info', text: `${verwaist.length} Stellvertretung(en) ohne ordentliches stimmberechtigtes Mitglied in der Organisation: ${verwaist.slice(0, 4).map(m => m.DisplayName + ' (' + (m.Typ || '–') + ')').join(', ')}.` });
 
-    members.sort((a, b) => {
-        const wA = getWeight(a.Status); const wB = getWeight(b.Status);
-        if (wA !== wB) return wA - wB;
-        return (a.Typ || "").localeCompare(b.Typ || "") || (a.DisplayName || "").localeCompare(b.DisplayName || "");
-    });
+    members.sort(compareStandard);
     members.forEach(m => delete m._zeile);
     return { members, warnings, statusTabelle };
 }
@@ -404,6 +418,9 @@ async function initializeSession() {
 
 function startWorkspace() {
     console.log("Starte Workspace...");
+    // Sitzung beginnt immer in der Standardsortierung (gerendert wird danach über switchTop)
+    currentSortMode = 'default'; currentSortDir = 1;
+    const sortSel = document.getElementById('sort-members-select'); if (sortSel) sortSel.value = 'default';
     const setupView = document.getElementById('setup-view');
     const mainWorkspace = document.getElementById('main-workspace');
     const backBtn = document.getElementById('btn-back-to-setup');
@@ -585,18 +602,14 @@ function renderAttendance() {
     } else if (currentSortMode === 'org') {
         sortedStatuses.sort((a, b) => currentSortDir * cmp(a.member.Typ, b.member.Typ) || cmp(a.member.Nachname, b.member.Nachname));
     } else if (currentSortMode === 'status') {
-        // Reihenfolge der Rollen wie im Standard (Stimmberechtigt, Beratend, Stellvertretung, Sonstige)
-        sortedStatuses.sort((a, b) => currentSortDir * (getWeight(a.member.Status) - getWeight(b.member.Status)) || cmp(a.member.Typ, b.member.Typ) || cmp(a.member.Nachname, b.member.Nachname));
+        // Reihenfolge der Rollen wie im Standard; innerhalb gleicher Rolle alphabetisch nach Name
+        sortedStatuses.sort((a, b) => currentSortDir * (getWeight(a.member.Status) - getWeight(b.member.Status)) || compareStandard(a.member, b.member));
     } else if (currentSortMode === 'present') {
         // aufsteigend: Anwesende zuerst; innerhalb gleicher Gruppe nach Nachname
         sortedStatuses.sort((a, b) => currentSortDir * (Number(b.isPresent) - Number(a.isPresent)) || cmp(a.member.Nachname, b.member.Nachname));
     } else {
         // Standard (Rolle)
-        sortedStatuses.sort((a, b) => {
-            const wA = getWeight(a.member.Status); const wB = getWeight(b.member.Status);
-            if (wA !== wB) return wA - wB;
-            return (a.member.Typ || "").localeCompare(b.member.Typ || "") || (a.member.DisplayName || "").localeCompare(b.member.DisplayName || "");
-        });
+        sortedStatuses.sort((a, b) => compareStandard(a.member, b.member));
     }
 
     let presentCount = 0;
@@ -610,9 +623,10 @@ function renderAttendance() {
         const isPresent = ms.isPresent;
         const group = ms.group;
         
-        if (currentSortMode === 'default' && group !== lastGroup) {
-            html += `<tr><td colspan="4" class="group-header">${group}</td></tr>`;
-            lastGroup = group;
+        const gruppe = WEIGHT_LABELS[getWeight(m.Status)];
+        if (currentSortMode === 'default' && gruppe !== lastGroup) {
+            html += `<tr><td colspan="4" class="group-header">${gruppe}</td></tr>`;
+            lastGroup = gruppe;
         }
         
         const isPrimaryVoting = group === "Stimmberechtigte Mitglieder";
